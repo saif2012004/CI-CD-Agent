@@ -80,6 +80,10 @@ class Notifier:
     ) -> bool:
         """Send notification to Slack"""
         try:
+            # Skip if webhook is not configured or invalid
+            if not self.slack_webhook or self.slack_webhook == "None" or not self.slack_webhook.startswith("http"):
+                logger.info("Slack webhook not configured - skipping notification")
+                return False
             # Color coding based on severity
             color_map = {
                 "critical": "#FF0000",  # Red
@@ -153,10 +157,10 @@ class Notifier:
                     return False
         
         except urllib.error.URLError as e:
-            logger.error(f"Failed to send Slack notification: {e}")
+            logger.warning(f"Failed to send Slack notification (this is optional): {e}")
             return False
         except Exception as e:
-            logger.error(f"Unexpected error sending Slack notification: {e}")
+            logger.warning(f"Slack notification error (this is optional): {e}")
             return False
     
     def _send_email_notification(
