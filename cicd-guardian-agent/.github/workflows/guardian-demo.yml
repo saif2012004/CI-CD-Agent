@@ -1,0 +1,146 @@
+name: CI/CD Guardian Demo
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+jobs:
+  simulate-critical-failure:
+    name: 🧪 Simulate Critical Pipeline Failure
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Simulate build process
+        run: |
+          echo "Starting build process..."
+          echo "Running tests..."
+          sleep 2
+          echo "⚠️ Simulating test failures..."
+          exit 1
+        continue-on-error: true
+      
+      - name: Simulate vulnerability scan
+        run: |
+          echo "Running security scan..."
+          echo "CRITICAL: CVE-2023-12345 detected in dependency"
+          echo "HIGH: CVE-2023-54321 detected in base image"
+      
+      - name: Generate test coverage report
+        run: |
+          echo "Generating coverage report..."
+          echo "Total coverage: 65.3%"
+          echo "⚠️ Below minimum threshold of 80%"
+      
+      - name: Analyze with CI/CD Guardian
+        if: always()
+        run: |
+          echo "🛡️ Sending pipeline data to CI/CD Guardian Agent..."
+          
+          # Prepare payload
+          PAYLOAD=$(cat <<EOF
+          {
+            "pipeline_id": "${{ github.run_id }}-${{ github.run_number }}",
+            "status": "failed",
+            "duration_seconds": 450,
+            "logs": "Build failed: Unit tests failed (12/45 passed). Security vulnerabilities detected.",
+            "vulnerabilities": ["CVE-2023-12345", "CVE-2023-54321"],
+            "branch": "${{ github.ref_name }}",
+            "commit_sha": "${{ github.sha }}",
+            "test_coverage_percent": 65.3,
+            "is_direct_push": ${{ github.event_name == 'push' }},
+            "pr_approved": false,
+            "pr_reviewers_count": 0
+          }
+          EOF
+          )
+          
+          echo "Payload:"
+          echo "$PAYLOAD" | jq '.'
+          
+          # Send to agent (replace with your agent URL)
+          AGENT_URL="${{ secrets.GUARDIAN_AGENT_URL || 'http://localhost:8000' }}"
+          
+          echo ""
+          echo "Sending to: $AGENT_URL/analyze"
+          
+          RESPONSE=$(curl -s -X POST "$AGENT_URL/analyze" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" || echo '{"error": "Agent not reachable"}')
+          
+          echo ""
+          echo "📊 Guardian Agent Response:"
+          echo "$RESPONSE" | jq '.'
+          
+          # Extract severity
+          SEVERITY=$(echo "$RESPONSE" | jq -r '.severity // "unknown"')
+          ANOMALY_COUNT=$(echo "$RESPONSE" | jq -r '.anomalies | length // 0')
+          RECOMMENDATION=$(echo "$RESPONSE" | jq -r '.recommendation // "No recommendation"')
+          
+          echo ""
+          echo "═══════════════════════════════════════════════════════════"
+          echo "🚨 SEVERITY: $SEVERITY"
+          echo "📋 ANOMALIES DETECTED: $ANOMALY_COUNT"
+          echo "═══════════════════════════════════════════════════════════"
+          echo ""
+          echo "💡 RECOMMENDATION:"
+          echo "$RECOMMENDATION"
+          echo "═══════════════════════════════════════════════════════════"
+          
+          # Color-coded summary
+          if [ "$SEVERITY" = "critical" ]; then
+            echo ""
+            echo "🔴 CRITICAL: This pipeline has critical issues!"
+            echo "⛔ MERGE BLOCKED until all issues are resolved"
+            exit 1
+          elif [ "$SEVERITY" = "high" ]; then
+            echo ""
+            echo "🟠 HIGH: This pipeline requires immediate attention"
+            exit 1
+          fi
+      
+      - name: Display Guardian Metrics
+        if: always()
+        run: |
+          AGENT_URL="${{ secrets.GUARDIAN_AGENT_URL || 'http://localhost:8000' }}"
+          
+          echo "📊 Fetching Guardian Metrics..."
+          METRICS=$(curl -s "$AGENT_URL/metrics" || echo '{}')
+          
+          echo ""
+          echo "═══════════════════════════════════════════════════════════"
+          echo "📈 CI/CD GUARDIAN METRICS"
+          echo "═══════════════════════════════════════════════════════════"
+          echo "$METRICS" | jq '.'
+          echo "═══════════════════════════════════════════════════════════"
+
+  test-guardian-integration:
+    name: ✅ Test Guardian Integration
+    runs-on: ubuntu-latest
+    needs: simulate-critical-failure
+    if: always()
+    
+    steps:
+      - name: Health Check
+        run: |
+          AGENT_URL="${{ secrets.GUARDIAN_AGENT_URL || 'http://localhost:8000' }}"
+          
+          echo "🏥 Checking Guardian Agent health..."
+          HEALTH=$(curl -s "$AGENT_URL/health" || echo '{"status": "unreachable"}')
+          
+          echo ""
+          echo "Health Status:"
+          echo "$HEALTH" | jq '.'
+          
+          STATUS=$(echo "$HEALTH" | jq -r '.status // "unknown"')
+          
+          if [ "$STATUS" = "healthy" ]; then
+            echo "✅ Guardian Agent is healthy"
+          else
+            echo "⚠️ Guardian Agent health check failed"
+          fi

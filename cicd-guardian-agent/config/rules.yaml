@@ -1,0 +1,51 @@
+# CI/CD Guardian Agent Configuration
+# All policies are fully configurable
+
+branch_protection:
+  # Branches that require special protection
+  protected_branches:
+    - main
+    - master
+    - develop
+  
+  # Require pull request for protected branches
+  require_pull_request: true
+  
+  # Minimum number of PR approvals required
+  min_approvals: 1
+
+test_coverage:
+  # Minimum test coverage percentage required
+  minimum_percentage: 80
+
+notifications:
+  # Slack webhook URL for notifications
+  # Replace with your actual webhook URL
+  slack_webhook: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  
+  # Email SMTP configuration (optional)
+  # Uncomment and configure to enable email notifications
+  email_smtp: null
+  # email_smtp:
+  #   server: "smtp.gmail.com"
+  #   port: 587
+  #   username: "your-email@gmail.com"
+  #   password: "your-app-password"
+  #   from_email: "cicd-guardian@example.com"
+  #   to_emails:
+  #     - "team@example.com"
+  #     - "devops@example.com"
+  
+  # Severity levels that trigger notifications
+  alert_on:
+    - critical
+    - high
+
+# Build monitoring thresholds
+build_monitoring:
+  # Maximum build duration in seconds (10 minutes)
+  max_duration_seconds: 600
+  
+  # Enable automatic escalation for critical issues
+  auto_escalate: true
+
