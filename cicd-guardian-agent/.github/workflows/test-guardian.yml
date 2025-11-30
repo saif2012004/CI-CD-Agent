@@ -113,8 +113,8 @@ jobs:
             IS_DIRECT_PUSH="true"
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
             IS_DIRECT_PUSH="false"
-            # Get PR approval status
-            PR_REVIEWERS=${{ github.event.pull_request.requested_reviewers && length(github.event.pull_request.requested_reviewers) || 0 }}
+            # Get PR approval status (simplified for demo)
+            PR_REVIEWERS=0
           fi
           
           # Calculate duration (approximate)
