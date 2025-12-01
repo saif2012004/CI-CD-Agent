@@ -4,6 +4,10 @@
 
 A modular, production-ready automation tool that safeguards CI/CD pipelines using Supervisor-Worker architecture. Built for the "Fundamentals of Software Project Management" course.
 
+**🌐 Live Deployment:** https://ci-cd-agent.onrender.com  
+**📊 API Docs:** https://ci-cd-agent.onrender.com/docs  
+**✅ Status:** Production Ready & Deployed
+
 ---
 
 ## 📋 Overview
@@ -46,128 +50,104 @@ cicd-guardian-agent/
 ├── logs/
 │   └── agent.log             # Structured logs
 ├── .github/workflows/
-│   └── guardian-demo.yml     # Live demo workflow
+│   └── test-guardian.yml     # GitHub Actions workflow
 ├── requirements.txt          # Python dependencies
 ├── render.yaml               # Render.com deployment config
-├── register_with_supervisor.py  # Registration script
-└── README.md                 # This file
+├── README.md                 # This file
+├── DEPLOYMENT.md             # Deployment guide
+└── SUPERVISOR_INTEGRATION_INFO.md  # Supervisor integration guide
 ```
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Installation
+### Use the Live Deployment (Recommended)
 
-```bash
-# Clone repository
-cd cicd-guardian-agent
+The agent is **already deployed and running** at:
+- **Base URL:** https://ci-cd-agent.onrender.com
+- **Interactive Docs:** https://ci-cd-agent.onrender.com/docs
+- **Health Check:** https://ci-cd-agent.onrender.com/health
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Configuration
-
-Edit `config/rules.yaml` to customize policies:
-
-```yaml
-branch_protection:
-  protected_branches: [main, master, develop]
-  require_pull_request: true
-  min_approvals: 1
-
-test_coverage:
-  minimum_percentage: 80
-
-notifications:
-  slack_webhook: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
-  alert_on: [critical, high]
-```
-
-### 3. Run Locally
-
-```bash
-# Start the agent
-uvicorn src.agent:app --reload --port 8000
-```
-
-Agent will be available at: `http://localhost:8000`
-
-### 4. Test the Agent
+### Test the Live Agent
 
 ```bash
 # Health check
-curl http://localhost:8000/health
+curl https://ci-cd-agent.onrender.com/health
 
-# Register with Supervisor
-python register_with_supervisor.py
+# Get metrics
+curl https://ci-cd-agent.onrender.com/metrics
 
 # Analyze a pipeline
-curl -X POST http://localhost:8000/analyze \
+curl -X POST https://ci-cd-agent.onrender.com/analyze \
   -H "Content-Type: application/json" \
   -d '{
     "pipeline_id": "test-123",
-    "status": "failed",
-    "duration_seconds": 450,
-    "logs": "Build failed",
-    "vulnerabilities": ["CVE-2023-12345"],
+    "status": "success",
+    "duration_seconds": 120,
+    "logs": "Build completed",
+    "vulnerabilities": [],
     "branch": "main",
     "commit_sha": "abc123",
-    "test_coverage_percent": 65.0,
+    "test_coverage_percent": 75.0,
     "is_direct_push": true,
     "pr_approved": false,
     "pr_reviewers_count": 0
   }'
 ```
 
+### Run Locally (Optional)
+
+If you want to run the agent on your local machine:
+
+1. **Clone & Install:**
+```bash
+git clone https://github.com/saif2012004/CI-CD-Agent.git
+cd CI-CD-Agent/cicd-guardian-agent
+pip install -r requirements.txt
+```
+
+2. **Configure** (optional):
+Edit `config/rules.yaml` to customize policies.
+
+3. **Run:**
+```bash
+uvicorn src.agent:app --reload --port 8000
+```
+
+Agent will be available at: `http://localhost:8000`
+
 ---
 
 ## 🌐 Deployment
 
-### Option 1: Render.com (Recommended - Free & Permanent)
+### ✅ Already Deployed on Render!
 
-1. **Push to GitHub:**
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git branch -M main
-   git remote add origin https://github.com/YOUR_USERNAME/cicd-guardian-agent.git
-   git push -u origin main
-   ```
+The agent is **live and running** at:
+- **Production URL:** https://ci-cd-agent.onrender.com
+- **Status:** Active 24/7
+- **Deployment:** Automated via GitHub push
+- **Platform:** Render.com (Free Tier)
 
-2. **Deploy on Render:**
-   - Go to [render.com](https://render.com)
-   - Click "New +" → "Web Service"
-   - Connect your GitHub repository
-   - Render will auto-detect `render.yaml`
-   - Click "Create Web Service"
+**Repository:** https://github.com/saif2012004/CI-CD-Agent
 
-3. **Get your permanent URL:**
-   ```
-   https://cicd-guardian-agent.onrender.com
-   ```
+### Integrate with Your Repository
 
-4. **Configure GitHub Actions:**
-   - Go to your repository settings → Secrets
-   - Add secret: `GUARDIAN_AGENT_URL` = your Render URL
+To use this agent in your projects:
 
-### Option 2: ngrok (Temporary URL for Testing)
+1. **Add the secret to your repository:**
+   - Go to: Your Repo → Settings → Secrets and variables → Actions
+   - Click "New repository secret"
+   - Name: `GUARDIAN_AGENT_URL`
+   - Value: `https://ci-cd-agent.onrender.com`
 
-```bash
-# In terminal 1 - Run agent
-uvicorn src.agent:app --port 8000
+2. **Add the workflow file:**
+   Copy `.github/workflows/test-guardian.yml` to your repository
 
-# In terminal 2 - Expose with ngrok
-ngrok http 8000
-```
+3. **Push code and watch the magic!** 🎉
 
-Copy the ngrok URL and use it in your GitHub Actions workflow.
+**Detailed deployment guide:** See [DEPLOYMENT.md](DEPLOYMENT.md)  
+**Supervisor integration:** See [SUPERVISOR_INTEGRATION_INFO.md](SUPERVISOR_INTEGRATION_INFO.md)
 
 ---
 
@@ -550,8 +530,32 @@ The agent auto-recovers! If you see corruption warnings:
 ## 📚 API Documentation
 
 Interactive API documentation available at:
+- **Swagger UI:** https://ci-cd-agent.onrender.com/docs
+- **ReDoc:** https://ci-cd-agent.onrender.com/redoc
+
+For local development:
 - **Swagger UI:** `http://localhost:8000/docs`
 - **ReDoc:** `http://localhost:8000/redoc`
+
+---
+
+## 🔗 Supervisor Integration
+
+This agent is designed to work with a Supervisor Agent in a Supervisor-Worker architecture.
+
+**For Supervisor Developers:**
+- See [SUPERVISOR_INTEGRATION_INFO.md](SUPERVISOR_INTEGRATION_INFO.md) for complete integration guide
+- **Registration Endpoint:** `POST https://ci-cd-agent.onrender.com/register`
+- **Health Monitoring:** `GET https://ci-cd-agent.onrender.com/health`
+- **Metrics Collection:** `GET https://ci-cd-agent.onrender.com/metrics`
+- **Task Delegation:** `POST https://ci-cd-agent.onrender.com/analyze`
+
+**Quick Test:**
+```bash
+curl -X POST https://ci-cd-agent.onrender.com/register
+```
+
+The agent automatically escalates critical and high-severity incidents to the supervisor via the `escalate_to_supervisor` flag in responses.
 
 ---
 
@@ -611,6 +615,7 @@ Built with:
 ---
 
 **Made with 🛡️ for Software Project Management**  
-**Deadline: Nov 30, 2025**  
-**Status: ✅ Production Ready**
+**Deployed:** November 30, 2025  
+**Status:** ✅ Live & Production Ready  
+**Live URL:** https://ci-cd-agent.onrender.com
 
