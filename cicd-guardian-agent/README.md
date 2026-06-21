@@ -187,6 +187,118 @@ All are optional:
 
 ---
 
+## ⚙️ Configuration
+
+**Nothing is required** to run — the agent boots with sensible defaults, and
+every feature below degrades gracefully if left unconfigured. Configure only the
+pieces whose value you want.
+
+### Where things are configured
+
+| Place | What lives there |
+|-------|------------------|
+| **Render** → your service → **Environment** tab | Agent-side secrets/settings (API keys, DB, webhooks) |
+| **GitHub repo** → Settings → **Secrets and variables → Actions** | Workflow secrets (where to reach the agent) |
+| **`config/rules.yaml`** (edit in repo, commit & push) | Policy thresholds |
+| **GitHub repo** → Settings → **Branches** | Branch protection (to enforce the verdict) |
+
+### Optional setup — pick what you want
+
+| You want… | Set this | Where |
+|-----------|----------|-------|
+| The CI workflow to reach your agent | `GUARDIAN_AGENT_URL` = `https://<your-agent>.onrender.com` | GitHub → Actions secrets |
+| 🤖 AI analysis | `GROQ_API_KEY` = `gsk_…` (free at [console.groq.com](https://console.groq.com)) | Render → Environment |
+| Durable metrics (survive restarts) | `DATABASE_URL` = Render Postgres URL | Render → Environment |
+| Lock down the API | `GUARDIAN_API_KEY` (same value on **both** Render **and** GitHub Actions secrets) | both |
+| Slack / Discord / Teams alerts | `SLACK_WEBHOOK_URL` / `DISCORD_WEBHOOK_URL` / `TEAMS_WEBHOOK_URL` | Render → Environment |
+| Tune policies | `minimum_percentage`, `max_duration_seconds`, `max_file_size_mb`, protected branches, `create_github_issue_on_block` | `config/rules.yaml` |
+
+### Enforce the verdict (real merge-gating)
+
+To make the agent **block** bad PRs (not just comment): GitHub repo → Settings →
+**Branches** → add/edit a branch protection rule → **Require status checks to
+pass** → select **"CI/CD Guardian"**.
+
+### Recommended minimal setup (free, gets you ~everything)
+
+1. **GitHub Actions secret:** `GUARDIAN_AGENT_URL = https://<your-agent>.onrender.com`
+2. **Render env var:** `GROQ_API_KEY = gsk_…`
+3. **Branch protection:** require the **CI/CD Guardian** check
+
+> Editing **Render env vars** auto-redeploys. Editing **`rules.yaml`** takes
+> effect after commit + push (Render auto-deploys). GitHub Actions secrets apply
+> on the next workflow run.
+
+---
+
+## 🧪 Testing It Yourself
+
+### 1. Run the test suite
+
+```bash
+cd cicd-guardian-agent
+pip install -r requirements.txt pytest pytest-cov httpx
+pytest --cov=src --cov-report=term      # 75 tests
+```
+
+### 2. Run the agent locally and hit it
+
+```bash
+uvicorn src.agent:app --reload --port 8000
+```
+
+In another terminal, send a deliberately bad pipeline and watch it get flagged:
+
+```bash
+curl -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pipeline_id": "local-test-1",
+    "status": "failed",
+    "duration_seconds": 800,
+    "logs": "AssertionError: expected 200 got 500",
+    "vulnerabilities": ["CVE-2023-9999"],
+    "branch": "main",
+    "commit_sha": "abc12345",
+    "test_coverage_percent": 55.0,
+    "is_direct_push": true,
+    "pr_approved": false,
+    "pr_reviewers_count": 0
+  }'
+```
+
+Expected: `severity: "critical"`, `block_merge: true`, and several anomalies.
+A clean run (status `success`, coverage ≥ 80, no CVEs, on a feature branch)
+returns `severity: "none"` and `block_merge: false`.
+
+### 3. Explore interactively
+
+- **Swagger UI** (try every endpoint in the browser): `http://localhost:8000/docs`
+- **Dashboard:** `http://localhost:8000/dashboard`
+- **Health:** `http://localhost:8000/health`
+- **Metrics:** `http://localhost:8000/metrics`
+
+### 4. (Optional) Test the AI analysis locally
+
+```bash
+export GROQ_API_KEY=gsk_...      # Windows PowerShell: $env:GROQ_API_KEY="gsk_..."
+uvicorn src.agent:app --reload --port 8000
+# re-run the /analyze curl above — the response now includes "ai_analysis"
+```
+
+### 5. (Optional) Test the full GitHub integration
+
+Expose your local agent with a tunnel and point the workflow at it:
+
+```bash
+ngrok http 8000                  # copy the https URL it prints
+```
+
+Set the `GUARDIAN_AGENT_URL` Actions secret to that URL, push a branch / open a
+PR, and watch the **CI/CD Guardian** Check Run and PR comment appear.
+
+---
+
 ## 🌐 Deployment
 
 ### ✅ Already Deployed on Render!
