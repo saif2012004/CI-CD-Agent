@@ -149,8 +149,12 @@ If you need to add environment variables:
 2. Select your service
 3. Go to "Environment" tab
 4. Add variables:
-   - `SLACK_WEBHOOK`: Your Slack webhook URL
-   - `EMAIL_CONFIG`: Email configuration (if needed)
+   - `SLACK_WEBHOOK_URL`: Your Slack webhook URL. Takes precedence over the
+     `slack_webhook` value in `config/rules.yaml`, keeping the secret out of
+     source control.
+   - `GUARDIAN_API_KEY`: If set, the `/analyze` and `/metrics` endpoints
+     require an `X-API-Key` header matching this value. Leave unset to disable
+     authentication (e.g. for local/demo use).
 
 ## Custom Domain (Optional)
 

@@ -2,9 +2,14 @@
 Pydantic models for CI/CD Guardian Agent
 Defines request/response schemas with comprehensive validation
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now_iso() -> str:
+    """Timezone-aware UTC timestamp in ISO 8601 format."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 class PipelineAnalysisRequest(BaseModel):
@@ -21,8 +26,8 @@ class PipelineAnalysisRequest(BaseModel):
     pr_approved: Optional[bool] = Field(None, description="Whether PR was approved")
     pr_reviewers_count: Optional[int] = Field(None, ge=0, description="Number of PR reviewers")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "pipeline_id": "build-12345",
                 "status": "failed",
@@ -37,6 +42,7 @@ class PipelineAnalysisRequest(BaseModel):
                 "pr_reviewers_count": 0
             }
         }
+    )
 
 
 class Anomaly(BaseModel):
@@ -53,7 +59,7 @@ class PipelineAnalysisResponse(BaseModel):
     anomalies: List[Anomaly]
     severity: str = Field(..., description="Overall severity: critical, high, medium, low, none")
     recommendation: str = Field(..., description="Action recommendation")
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = Field(default_factory=_utc_now_iso)
     escalate_to_supervisor: bool = Field(..., description="Whether to escalate to supervisor")
 
 
@@ -73,7 +79,7 @@ class MetricsResponse(BaseModel):
 class HealthResponse(BaseModel):
     """Response model for health check"""
     status: str = Field(..., description="Service health status")
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = Field(default_factory=_utc_now_iso)
     memory_status: Dict[str, str]
     config_loaded: bool
     uptime_seconds: float

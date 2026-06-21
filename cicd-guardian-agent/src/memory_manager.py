@@ -8,7 +8,7 @@ import sqlite3
 import logging
 import os
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -150,7 +150,7 @@ class MemoryManager:
         """Update short-term memory with new analysis"""
         try:
             self.stm["last_pipeline"] = pipeline_id
-            self.stm["last_analyzed"] = datetime.utcnow().isoformat()
+            self.stm["last_analyzed"] = datetime.now(timezone.utc).isoformat()
             self.stm["total_analyzed"] = self.stm.get("total_analyzed", 0) + 1
             
             if severity in ["critical", "high"]:
@@ -193,7 +193,7 @@ class MemoryManager:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 pipeline_id,
-                datetime.utcnow().isoformat(),
+                datetime.now(timezone.utc).isoformat(),
                 status,
                 severity,
                 duration_seconds,

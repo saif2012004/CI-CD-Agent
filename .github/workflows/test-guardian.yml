@@ -84,6 +84,7 @@ jobs:
         if: always()
         env:
           GUARDIAN_URL: ${{ secrets.GUARDIAN_AGENT_URL || 'http://localhost:8000' }}
+          GUARDIAN_API_KEY: ${{ secrets.GUARDIAN_API_KEY }}
         run: |
           # Determine pipeline status
           if [ "${{ steps.test.outcome }}" = "failure" ] || [ "${{ steps.install.outcome }}" = "failure" ]; then
@@ -146,9 +147,11 @@ jobs:
           echo "Sending to Guardian Agent at: $GUARDIAN_URL"
           echo "Payload: $PAYLOAD"
           
-          # Send to Guardian Agent
+          # Send to Guardian Agent (X-API-Key only matters if the agent has
+          # GUARDIAN_API_KEY set; an empty header is harmless otherwise)
           RESPONSE=$(curl -X POST "$GUARDIAN_URL/analyze" \
             -H "Content-Type: application/json" \
+            -H "X-API-Key: $GUARDIAN_API_KEY" \
             -d "$PAYLOAD" \
             -w "\nHTTP_CODE:%{http_code}" \
             --connect-timeout 10 \

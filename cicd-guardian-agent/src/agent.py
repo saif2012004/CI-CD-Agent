@@ -2,13 +2,14 @@
 CI/CD Guardian Agent - Main FastAPI Application
 Supervisor-Worker Architecture: Worker Agent for CI/CD Pipeline Monitoring
 """
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends, Header, status
 from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
 import logging
 import yaml
 import time
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import os
 
 from src.models import (
@@ -37,19 +38,31 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
-app = FastAPI(
-    title="CI/CD Guardian Agent",
-    description="Intelligent CI/CD pipeline monitoring and policy enforcement agent",
-    version="1.0.0"
-)
-
 # Global state
 START_TIME = time.time()
 CONFIG: Dict[str, Any] = {}
 POLICY_ENFORCER: PolicyEnforcer = None
 NOTIFIER: Notifier = None
 MEMORY: MemoryManager = None
+
+
+async def verify_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
+    """
+    Optional API-key authentication.
+
+    If the GUARDIAN_API_KEY environment variable is set, requests to
+    protected endpoints must send a matching X-API-Key header. If it is
+    not set, authentication is disabled (convenient for local/demo use).
+    """
+    expected = os.getenv("GUARDIAN_API_KEY")
+    if not expected:
+        return  # Auth disabled
+    if x_api_key != expected:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key",
+            headers={"WWW-Authenticate": "API-Key"},
+        )
 
 
 def load_config() -> Dict[str, Any]:
@@ -90,25 +103,35 @@ def get_default_config() -> Dict[str, Any]:
     }
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize agent on startup"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize agent components on startup."""
     global CONFIG, POLICY_ENFORCER, NOTIFIER, MEMORY
-    
+
     logger.info("🛡️  CI/CD Guardian Agent starting up...")
-    
+
     # Load configuration
     CONFIG = load_config()
-    
+
     # Initialize components
     POLICY_ENFORCER = PolicyEnforcer(CONFIG)
     NOTIFIER = Notifier(CONFIG.get("notifications", {}))
     MEMORY = MemoryManager()
-    
+
     logger.info("✅ CI/CD Guardian Agent ready")
+    yield
 
 
-@app.post("/analyze", response_model=PipelineAnalysisResponse)
+# Initialize FastAPI app
+app = FastAPI(
+    title="CI/CD Guardian Agent",
+    description="Intelligent CI/CD pipeline monitoring and policy enforcement agent",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+
+@app.post("/analyze", response_model=PipelineAnalysisResponse, dependencies=[Depends(verify_api_key)])
 async def analyze_pipeline(request: PipelineAnalysisRequest):
     """
     Core endpoint: Analyze pipeline and detect anomalies
@@ -193,7 +216,7 @@ async def analyze_pipeline(request: PipelineAnalysisRequest):
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
-@app.get("/metrics", response_model=MetricsResponse)
+@app.get("/metrics", response_model=MetricsResponse, dependencies=[Depends(verify_api_key)])
 async def get_metrics():
     """
     Get comprehensive metrics for supervisor

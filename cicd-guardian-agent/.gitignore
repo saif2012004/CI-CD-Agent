@@ -37,8 +37,9 @@ ENV/
 # Logs
 logs/*.log
 
-# Database
+# Database / runtime state
 src/memory.db
+src/memory.json
 
 # Environment variables
 .env
