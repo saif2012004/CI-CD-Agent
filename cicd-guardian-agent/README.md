@@ -36,27 +36,35 @@ The CI/CD Guardian Agent is an intelligent worker agent that:
 ### Project Structure
 
 ```
-cicd-guardian-agent/
-├── src/
-│   ├── agent.py              # Main FastAPI application
-│   ├── policy_enforcer.py    # Branch protection + test coverage
-│   ├── notifier.py           # Slack + Email notifications
-│   ├── memory_manager.py     # STM/LTM with corruption handling
-│   ├── models.py             # Pydantic request/response models
-│   ├── memory.json           # Short-term memory
-│   └── memory.db             # Long-term memory (auto-created)
-├── config/
-│   └── rules.yaml            # Fully configurable policies
-├── logs/
-│   └── agent.log             # Structured logs
+CI-CD-Agent/                       # Repository root
 ├── .github/workflows/
-│   └── test-guardian.yml     # GitHub Actions workflow
-├── requirements.txt          # Python dependencies
-├── render.yaml               # Render.com deployment config
-├── README.md                 # This file
-├── DEPLOYMENT.md             # Deployment guide
-└── SUPERVISOR_INTEGRATION_INFO.md  # Supervisor integration guide
+│   └── test-guardian.yml          # GitHub Actions workflow (runs the test suite)
+└── cicd-guardian-agent/           # Application
+    ├── src/
+    │   ├── agent.py               # Main FastAPI application
+    │   ├── policy_enforcer.py     # Branch protection + test coverage
+    │   ├── notifier.py            # Slack + Email notifications
+    │   ├── memory_manager.py      # STM/LTM with corruption handling
+    │   ├── models.py              # Pydantic request/response models
+    │   ├── memory.json            # Short-term memory (auto-created, gitignored)
+    │   └── memory.db              # Long-term memory (auto-created, gitignored)
+    ├── tests/
+    │   └── test_policy_enforcer.py, test_auth.py   # Pytest suite
+    ├── conftest.py                # Test path setup
+    ├── config/
+    │   └── rules.yaml             # Fully configurable policies
+    ├── logs/
+    │   └── agent.log              # Structured logs
+    ├── requirements.txt           # Python dependencies
+    ├── render.yaml                # Render.com deployment config
+    ├── README.md                  # This file
+    ├── DEPLOYMENT.md              # Deployment guide
+    └── SUPERVISOR_INTEGRATION_INFO.md  # Supervisor integration guide
 ```
+
+> **Note:** The GitHub Actions workflow lives at the **repository root**
+> (`.github/workflows/`) so GitHub picks it up; its `run` steps execute inside
+> `cicd-guardian-agent/`.
 
 ---
 
@@ -117,6 +125,17 @@ uvicorn src.agent:app --reload --port 8000
 
 Agent will be available at: `http://localhost:8000`
 
+### Environment Variables
+
+All are optional:
+
+| Variable | Purpose |
+|----------|---------|
+| `PORT` | Port to bind (default `8000`). |
+| `SLACK_WEBHOOK_URL` | Slack webhook for notifications; overrides `config/rules.yaml`. |
+| `GUARDIAN_API_KEY` | If set, requires an `X-API-Key` header on `/analyze` and `/metrics`. Unset = auth disabled. |
+| `GUARDIAN_AGENT_URL` | *(CI secret)* URL the GitHub Actions workflow posts results to. |
+
 ---
 
 ## 🌐 Deployment
@@ -162,6 +181,24 @@ To use this agent in your projects:
 | `/health` | GET | Health check with memory status |
 | `/register` | POST | Register with Supervisor |
 | `/docs` | GET | Interactive API documentation |
+
+### 🔐 Authentication
+
+`/analyze` and `/metrics` support **optional** API-key authentication:
+
+- If the `GUARDIAN_API_KEY` environment variable is set on the agent, requests
+  to those two endpoints must include a matching `X-API-Key` header (otherwise
+  they return `401 Unauthorized`).
+- If `GUARDIAN_API_KEY` is **not** set, authentication is disabled — convenient
+  for local/demo use.
+- `/health`, `/`, and `/register` are always open.
+
+```bash
+curl -X POST https://ci-cd-agent.onrender.com/analyze \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $GUARDIAN_API_KEY" \
+  -d '{ ... }'
+```
 
 ### POST /analyze
 
@@ -246,7 +283,7 @@ The agent detects the following anomalies:
 | **Build Failure** | Pipeline status = failed | 🟠 High |
 | **Build Aborted** | Pipeline status = aborted | 🟠 High |
 | **Insufficient Reviewers** | PR reviewers < minimum required | 🟠 High |
-| **Excessive Duration** | Duration > 600 seconds | 🟡 Medium |
+| **Excessive Duration** | Duration > threshold (default 600s, configurable) | 🟡 Medium |
 
 ### Severity Calculation
 
@@ -267,10 +304,17 @@ The agent detects the following anomalies:
    - Create a new webhook for your workspace
    - Copy the webhook URL
 
-2. **Configure in `config/rules.yaml`:**
+2. **Configure via environment variable (recommended):**
+   Set `SLACK_WEBHOOK_URL` in your environment (e.g. Render → Environment tab).
+   This takes precedence over `config/rules.yaml`, keeping the secret out of
+   source control:
+   ```bash
+   export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+   ```
+   Alternatively (not recommended for secrets), set it in `config/rules.yaml`:
    ```yaml
    notifications:
-     slack_webhook: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+     slack_webhook: null   # leave null and use SLACK_WEBHOOK_URL instead
      alert_on: [critical, high]
    ```
 
@@ -299,33 +343,36 @@ notifications:
 
 ## 🧪 GitHub Actions Integration
 
-The `.github/workflows/guardian-demo.yml` provides a complete live demo:
+The workflow at `.github/workflows/test-guardian.yml` (repository root) runs on
+every push/PR and:
 
-1. **Simulates critical failure scenario:**
-   - Build failure
-   - Security vulnerabilities (CVE-2023-12345, CVE-2023-54321)
-   - Direct push to main branch
-   - Low test coverage (65%)
-   - No PR approval
+1. **Runs the test suite with coverage** — a test failure **fails the build**
+   (the step no longer uses `continue-on-error`, and there is no dummy-coverage
+   fallback).
 
-2. **Sends to Guardian Agent for analysis**
+2. **Runs a security scan** (`pip-audit`) to surface CVEs.
 
-3. **Displays results with color-coded severity**
+3. **Sends the pipeline result to the Guardian Agent** for analysis and
+   displays the color-coded severity.
 
-4. **Blocks merge if critical issues detected**
+4. **Blocks merge if critical issues are detected.**
 
 ### Setup GitHub Actions
 
 1. Add your agent URL as a secret:
-   - Repository → Settings → Secrets → Actions
+   - Repository → Settings → Secrets and variables → Actions
    - New secret: `GUARDIAN_AGENT_URL` = your agent URL
 
-2. Push to trigger workflow:
+2. *(Optional)* If your agent enforces auth, add a `GUARDIAN_API_KEY` secret with
+   the same value as the agent's `GUARDIAN_API_KEY` env var. The workflow sends
+   it as the `X-API-Key` header (harmless when auth is disabled).
+
+3. Push to trigger the workflow:
    ```bash
    git push origin main
    ```
 
-3. Watch the action run and see Guardian in action!
+4. Watch the action run and see Guardian in action!
 
 ---
 
@@ -382,7 +429,8 @@ The agent enforces the following policies (configurable via `rules.yaml`):
 
 ### 4. Build Health
 - ✅ No failed or aborted builds
-- ✅ Build duration < 600 seconds (10 minutes)
+- ✅ Build duration under threshold (default 600s, set via
+  `build_monitoring.max_duration_seconds` in `rules.yaml`)
 
 ### 5. Code Review
 - ✅ Minimum reviewers requirement enforced
@@ -394,13 +442,18 @@ The agent enforces the following policies (configurable via `rules.yaml`):
 
 ### Running Tests
 
+The repo ships with a pytest suite (policy enforcement + auth). Run it from the
+`cicd-guardian-agent/` directory:
+
 ```bash
 # Install dev dependencies
-pip install pytest pytest-cov httpx
+pip install -r requirements.txt pytest pytest-cov
 
-# Run tests (when test suite is added)
-pytest tests/ -v --cov=src
+# Run the test suite with coverage
+pytest --cov=src --cov-report=term
 ```
+
+These same tests run in CI on every push/PR and fail the build on any failure.
 
 ### Code Quality
 
@@ -487,7 +540,8 @@ The agent auto-recovers! If you see corruption warnings:
 ### GitHub Actions not triggering
 1. Ensure `GUARDIAN_AGENT_URL` secret is set
 2. Check agent is publicly accessible
-3. Verify workflow syntax in `.github/workflows/guardian-demo.yml`
+3. Verify workflow syntax in `.github/workflows/test-guardian.yml` (note: it
+   must live at the **repository root**, not inside `cicd-guardian-agent/`)
 
 ---
 
@@ -524,6 +578,8 @@ The agent auto-recovers! If you see corruption warnings:
 - [x] Structured logging
 - [x] Modular architecture
 - [x] Full documentation
+- [x] Automated pytest suite, enforced in CI
+- [x] Optional API-key authentication
 
 ---
 
