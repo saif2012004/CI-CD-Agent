@@ -2,6 +2,11 @@
 Tests for the diff-based extra checks: secret scanning (src/scanners.py) and
 the PolicyEnforcer secret / large-file checks.
 """
+import json
+import os
+import subprocess
+import sys
+
 from src.scanners import scan_diff_for_secrets
 from src.policy_enforcer import PolicyEnforcer
 
@@ -80,3 +85,11 @@ def test_analyze_pipeline_includes_extra_checks():
     types = {a.type for a in anomalies}
     assert "secret_detected" in types
     assert "large_file" in types
+
+
+def test_ci_diff_signals_script_runs():
+    """The CI helper script imports and emits valid JSON for an empty base."""
+    script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts", "ci_diff_signals.py")
+    result = subprocess.run([sys.executable, script, "", ""], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"changed_files": [], "secrets_detected": []}
