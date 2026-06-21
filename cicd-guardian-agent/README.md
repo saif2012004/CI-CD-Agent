@@ -137,6 +137,8 @@ All are optional:
 | `ANTHROPIC_API_KEY` | Enables 🤖 Claude-powered root-cause analysis on `/analyze`. Unset = AI analysis skipped. |
 | `ANTHROPIC_MODEL` | Override the Claude model used for analysis (default `claude-opus-4-8`). |
 | `SLACK_WEBHOOK_URL` | Slack webhook for notifications; overrides `config/rules.yaml`. |
+| `DISCORD_WEBHOOK_URL` | Discord incoming webhook for notifications (optional). |
+| `TEAMS_WEBHOOK_URL` | Microsoft Teams incoming webhook for notifications (optional). |
 | `GUARDIAN_API_KEY` | If set, requires an `X-API-Key` header on `/analyze` and `/metrics`. Unset = auth disabled. |
 | `GUARDIAN_AGENT_URL` | *(CI secret)* URL the GitHub Actions workflow posts results to. |
 
@@ -299,6 +301,17 @@ The agent detects the following anomalies:
 ---
 
 ## 🔔 Notifications
+
+The agent can alert on `critical`/`high` incidents through multiple channels, all
+optional and best-effort:
+
+| Channel | How to enable |
+|---------|---------------|
+| **Slack** | `SLACK_WEBHOOK_URL` env var (or `slack_webhook` in rules.yaml) |
+| **Discord** | `DISCORD_WEBHOOK_URL` env var (or `discord_webhook`) |
+| **Microsoft Teams** | `TEAMS_WEBHOOK_URL` env var (or `teams_webhook`) |
+| **Email** | `email_smtp` block in rules.yaml |
+| **GitHub Issue** | set `notifications.create_github_issue_on_block: true` — opens an issue when a non-PR change is blocked |
 
 ### Slack Integration
 

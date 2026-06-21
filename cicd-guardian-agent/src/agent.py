@@ -277,6 +277,16 @@ async def analyze_pipeline(request: PipelineAnalysisRequest):
                     request.github_pr_number,
                     _build_pr_comment(severity, anomalies, recommendation, block_merge, ai_analysis),
                 )
+            elif (
+                block_merge
+                and not request.github_pr_number
+                and CONFIG.get("notifications", {}).get("create_github_issue_on_block")
+            ):
+                gh_client.create_issue(
+                    title=f"[CI/CD Guardian] Blocked: {request.branch} @ {request.commit_sha[:8]}",
+                    body=_build_pr_comment(severity, anomalies, recommendation, block_merge, ai_analysis),
+                    labels=["ci-cd-guardian"],
+                )
 
         logger.info(f"Analysis complete: {severity} severity, {len(anomalies)} anomalies")
         return response

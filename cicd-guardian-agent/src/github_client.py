@@ -115,3 +115,18 @@ class GitHubClient:
         except Exception as e:
             logger.warning(f"Failed to post PR comment: {e}")
             return False
+
+    def create_issue(self, title: str, body: str, labels=None) -> bool:
+        """Open a GitHub issue (used to surface a blocked change with no PR)."""
+        try:
+            url = f"{GITHUB_API}/repos/{self.repo}/issues"
+            payload = {"title": title[:256], "body": body}
+            if labels:
+                payload["labels"] = labels
+            resp = self.session.post(url, json=payload, timeout=self.timeout)
+            resp.raise_for_status()
+            logger.info(f"Opened GitHub issue: {title[:60]}")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to create issue: {e}")
+            return False

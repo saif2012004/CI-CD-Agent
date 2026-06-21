@@ -28,6 +28,8 @@ class Notifier:
         self.config = config
         # Environment variable takes precedence so secrets stay out of rules.yaml
         self.slack_webhook = os.getenv("SLACK_WEBHOOK_URL") or config.get("slack_webhook")
+        self.discord_webhook = os.getenv("DISCORD_WEBHOOK_URL") or config.get("discord_webhook")
+        self.teams_webhook = os.getenv("TEAMS_WEBHOOK_URL") or config.get("teams_webhook")
         self.email_config = config.get("email_smtp")
         self.alert_on = config.get("alert_on", ["critical", "high"])
         logger.info(f"Notifier initialized. Alert levels: {self.alert_on}")
@@ -63,13 +65,63 @@ class Notifier:
                 pipeline_id, severity, anomalies, recommendation, branch, commit_sha
             )
         
+        # Send Discord notification
+        if self.discord_webhook:
+            results["discord"] = self._send_webhook_text(
+                self.discord_webhook,
+                {"content": self._plain_message(pipeline_id, severity, anomalies, recommendation, branch, commit_sha)},
+                channel="discord",
+            )
+
+        # Send Microsoft Teams notification
+        if self.teams_webhook:
+            results["teams"] = self._send_webhook_text(
+                self.teams_webhook,
+                {"text": self._plain_message(pipeline_id, severity, anomalies, recommendation, branch, commit_sha)},
+                channel="teams",
+            )
+
         # Send Email notification
         if self.email_config:
             results["email"] = self._send_email_notification(
                 pipeline_id, severity, anomalies, recommendation, branch, commit_sha
             )
-        
+
         return results
+
+    def _plain_message(self, pipeline_id, severity, anomalies, recommendation, branch, commit_sha) -> str:
+        """Build a plain-text alert body shared by Discord/Teams."""
+        anomaly_text = "\n".join(f"• {a.description}" for a in anomalies)
+        return (
+            f"🛡️ CI/CD Guardian Alert — {severity.upper()}\n"
+            f"Pipeline: {pipeline_id} | Branch: {branch} | Commit: {commit_sha[:8]}\n\n"
+            f"Anomalies:\n{anomaly_text}\n\n"
+            f"Recommendation:\n{recommendation}"
+        )
+
+    def _send_webhook_text(self, url: str, payload: Dict[str, Any], channel: str) -> bool:
+        """POST a simple JSON payload to a webhook (Discord/Teams). Best-effort."""
+        try:
+            if not url or not url.startswith("http"):
+                logger.info(f"{channel} webhook not configured - skipping")
+                return False
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                # Discord returns 204, Teams returns 200
+                ok = response.status in (200, 204)
+                if ok:
+                    logger.info(f"{channel} notification sent")
+                else:
+                    logger.warning(f"{channel} notification failed: status {response.status}")
+                return ok
+        except Exception as e:
+            logger.warning(f"{channel} notification error (this is optional): {e}")
+            return False
     
     def _send_slack_notification(
         self,

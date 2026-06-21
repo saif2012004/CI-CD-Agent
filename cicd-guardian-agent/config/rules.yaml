@@ -23,7 +23,15 @@ notifications:
   # Leave as null and set the SLACK_WEBHOOK_URL environment variable instead,
   # so the secret never lives in this file. The env var takes precedence.
   slack_webhook: null
-  
+
+  # Discord / Microsoft Teams incoming webhooks (optional).
+  # Prefer the DISCORD_WEBHOOK_URL / TEAMS_WEBHOOK_URL environment variables.
+  discord_webhook: null
+  teams_webhook: null
+
+  # Open a GitHub issue when a non-PR change is blocked (requires GitHub context).
+  create_github_issue_on_block: false
+
   # Email SMTP configuration (optional)
   # Uncomment and configure to enable email notifications
   email_smtp: null
