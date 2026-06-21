@@ -15,23 +15,63 @@ A modular, production-ready, **standalone** automation tool that safeguards CI/C
 The CI/CD Guardian Agent is an intelligent, standalone agent that:
 
 - ✅ **Enforces branch protection** (no direct push to main/master/develop)
-- ✅ **Validates pull requests** (minimum approvals required)
-- ✅ **Monitors test coverage** (≥80% threshold)
+- ✅ **Validates pull requests** using **real** approval/reviewer data from GitHub
+- ✅ **Monitors test coverage** (≥80%, configurable)
 - ✅ **Detects security vulnerabilities** (CVE scanning)
-- ✅ **Tracks build health** (failures, duration, anomalies)
-- ✅ **Sends real-time notifications** (Slack/Email)
-- ✅ **Issues a block/allow verdict** on every run (`block_merge`) plus metrics & logs
-- ✅ **Auto-recovers from corruption** (STM + LTM memory system)
+- ✅ **Scans diffs for committed secrets** (in CI, redacted) and **oversized files**
+- ✅ **Tracks build health** (failures, duration, anomalies) + **historical trends**
+- ✅ **Acts on GitHub itself** — posts a merge-gating Check Run and comments on the PR
+- ✅ **Explains failures with Claude** (Opus 4.8) — optional root-cause + remediation
+- ✅ **Notifies** via Slack, Discord, Microsoft Teams, Email, and GitHub Issues
+- ✅ **Issues a block/allow verdict** on every run (`block_merge`) + a live dashboard
+- ✅ **Persists metrics** durably (Postgres) with SQLite fallback and corruption recovery
 
 ---
 
 ## 🏗️ Architecture
 
-**Pattern:** Standalone autonomous service  
-**Role:** Self-contained policy decision engine  
-**Integration:** GitHub Actions / Jenkins  
-**Configuration:** YAML-based  
-**Memory:** Short-term (JSON) + Long-term (SQLite)
+**Pattern:** Standalone autonomous service (no external orchestrator)  
+**Role:** Self-contained policy decision engine that **acts** on its verdict  
+**API:** FastAPI (Python 3.11)  
+**Integration:** GitHub Actions (the workflow gathers build signals; the agent decides + acts)  
+**Configuration:** YAML (`config/rules.yaml`) + environment variables  
+**Memory:** Short-term (JSON) + Long-term (Postgres or SQLite)
+
+### How it works (data flow)
+
+```
+   ┌──────────────────────── GitHub Actions (CI runner) ────────────────────────┐
+   │  run tests + coverage  →  pip-audit (CVEs)  →  scan diff (secrets, files)   │
+   │                         build the analysis payload (with the github token)  │
+   └───────────────────────────────────┬─────────────────────────────────────────┘
+                                        │  POST /analyze
+                                        ▼
+   ┌─────────────────────────── CI/CD Guardian Agent ───────────────────────────┐
+   │  PolicyEnforcer   → anomalies + severity + block/allow verdict              │
+   │  GitHubClient     → reads real PR reviews; posts Check Run + PR comment     │
+   │  AIAnalyzer       → (optional) Claude Opus 4.8 root-cause + remediation     │
+   │  Notifier         → Slack / Discord / Teams / Email / GitHub Issue          │
+   │  MemoryManager    → STM (JSON) + LTM (Postgres/SQLite) + trends             │
+   │  Dashboard        → /dashboard (cards, charts, recent incidents, trends)    │
+   └─────────────────────────────────────────────────────────────────────────────┘
+                                        │  Check Run (failure) gates the merge
+                                        ▼
+                          branch protection blocks the PR
+```
+
+### Components
+
+| Module | Responsibility |
+|--------|----------------|
+| `agent.py` | FastAPI app, lifespan wiring, `/analyze` orchestration, dashboard routes, optional API-key auth |
+| `policy_enforcer.py` | All policy checks → anomalies, severity, recommendation |
+| `github_client.py` | Read real PR review state; post Check Runs, PR comments, issues |
+| `ai_analyzer.py` | Optional Claude (Opus 4.8) root-cause analysis (graceful fallback) |
+| `scanners.py` + `scripts/ci_diff_signals.py` | In-CI diff secret scan (redacted) + changed-file sizes |
+| `notifier.py` | Slack / Discord / Teams / Email delivery |
+| `memory_manager.py` | STM (JSON) + LTM (Postgres/SQLite), metrics, trends, corruption recovery |
+| `dashboard.py` | Self-contained HTML dashboard (Chart.js via CDN) |
+| `models.py` | Pydantic request/response schemas |
 
 ### Project Structure
 
@@ -51,8 +91,10 @@ CI-CD-Agent/                       # Repository root
     │   ├── memory_manager.py      # STM/LTM with corruption handling
     │   ├── models.py              # Pydantic request/response models
     │   ├── memory.json            # Short-term memory (auto-created, gitignored)
-    │   └── memory.db              # Long-term memory (auto-created, gitignored)
-    ├── tests/                     # Pytest suite (policy, auth, github, /analyze)
+    │   └── memory.db              # Long-term memory — SQLite (auto-created, gitignored)
+    ├── scripts/
+    │   └── ci_diff_signals.py     # In-CI diff scanner (secrets + file sizes)
+    ├── tests/                     # Pytest suite — 75 tests
     ├── conftest.py                # Test path setup
     ├── config/
     │   └── rules.yaml             # Fully configurable policies
@@ -221,9 +263,21 @@ curl -X POST https://ci-cd-agent.onrender.com/analyze \
   "test_coverage_percent": 65.0,
   "is_direct_push": true,
   "pr_approved": false,
-  "pr_reviewers_count": 0
+  "pr_reviewers_count": 0,
+
+  "github_repo": "owner/repo",          // optional — lets the agent act on GitHub
+  "github_pr_number": 42,                // optional — agent reads real PR reviews
+  "github_token": "ghp_...",             // optional — for Check Run / comment / issue
+  "secrets_detected": [],                // optional — redacted findings from the CI scan
+  "changed_files": [                     // optional — for large-file detection
+    {"path": "data.bin", "size_bytes": 12345678}
+  ]
 }
 ```
+
+> When `github_*` fields are omitted, the agent simply returns its verdict
+> without touching GitHub. `pr_approved` / `pr_reviewers_count` may be sent as
+> `null` — the agent fills them from GitHub when `github_pr_number` is provided.
 
 **Response:**
 ```json
@@ -250,9 +304,12 @@ curl -X POST https://ci-cd-agent.onrender.com/analyze \
   "severity": "critical",
   "recommendation": "🚨 URGENT: Block merge until issues resolved.\n- Security vulnerability detected: CVE-2023-12345\n- Direct push to protected branch 'main' is not allowed\n- Test coverage (65%) is below minimum (80%)\n\nRecommended Actions:\n• Update dependencies to patch security vulnerabilities\n• Revert direct push and create a pull request instead\n• Add more unit tests to meet coverage requirements",
   "block_merge": true,
+  "ai_analysis": "Root cause: a vulnerable dependency ... \nFix:\n- bump the package",
   "timestamp": "2025-11-29T10:30:00Z"
 }
 ```
+
+> `ai_analysis` is `null` unless `ANTHROPIC_API_KEY` is configured on the agent.
 
 ### GET /metrics
 
@@ -523,8 +580,9 @@ The agent enforces the following policies (configurable via `rules.yaml`):
 
 ### Running Tests
 
-The repo ships with a pytest suite (policy enforcement + auth). Run it from the
-`cicd-guardian-agent/` directory:
+The repo ships with a **75-test** pytest suite (policy, auth, GitHub client,
+storage backends, dashboard, AI analyzer, trends, notification channels, and the
+diff scanners). Run it from the `cicd-guardian-agent/` directory:
 
 ```bash
 # Install dev dependencies
@@ -628,40 +686,40 @@ The agent auto-recovers! If you see corruption warnings:
 
 ## 🏆 Features Checklist
 
-✅ **Core Functionality**
+✅ **Policy Enforcement**
 - [x] Branch protection enforcement
-- [x] Test coverage monitoring (≥80%)
-- [x] Security vulnerability detection
-- [x] Build health monitoring
-- [x] PR validation (approvals, reviewers)
+- [x] PR validation with **real** approval/reviewer data from GitHub
+- [x] Test coverage monitoring (≥80%, configurable)
+- [x] Security vulnerability detection (CVEs)
+- [x] Build health monitoring (status + configurable duration)
+- [x] Diff hygiene: secret scanning (in CI, redacted) + large-file detection
+
+✅ **Acts on GitHub (autonomous)**
+- [x] Posts a merge-gating Check Run
+- [x] Comments findings on the pull request
+- [x] Opens an issue for blocked non-PR changes (opt-in)
+
+✅ **Intelligence & Insights**
+- [x] Claude (Opus 4.8) root-cause analysis (optional, graceful fallback)
+- [x] Historical trend detection (duration, block-rate)
+- [x] Web dashboard (`/dashboard`) with cards, charts, trends
 
 ✅ **Notifications**
-- [x] Slack integration
-- [x] Email support
-- [x] Configurable alert levels
-- [x] Color-coded severity
+- [x] Slack, Discord, Microsoft Teams, Email, GitHub Issues
+- [x] Configurable alert levels + color-coded severity
 
 ✅ **Memory & Persistence**
 - [x] Short-term memory (JSON)
-- [x] Long-term memory (SQLite)
-- [x] Corruption auto-recovery
-- [x] Metrics aggregation
+- [x] Long-term memory — Postgres (durable) or SQLite fallback
+- [x] Corruption auto-recovery + metrics/trends aggregation
 
-✅ **Integration**
-- [x] GitHub Actions workflow
-- [x] FastAPI REST API
-- [x] Self-contained block/allow verdict
-- [x] Web dashboard (`/dashboard`)
-- [x] Render.com deployment
-
-✅ **Code Quality**
-- [x] 100% type hints
-- [x] Comprehensive error handling
-- [x] Structured logging
-- [x] Modular architecture
-- [x] Full documentation
-- [x] Automated pytest suite, enforced in CI
+✅ **Platform & Quality**
+- [x] FastAPI REST API + self-contained block/allow verdict
+- [x] GitHub Actions workflow (tests enforced; build signals gathered)
 - [x] Optional API-key authentication
+- [x] Render.com deployment
+- [x] 75-test pytest suite, enforced in CI
+- [x] Type hints, structured logging, modular architecture, full docs
 
 ---
 
