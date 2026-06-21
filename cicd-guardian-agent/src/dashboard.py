@@ -56,6 +56,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="panel"><h2>Top anomalies</h2><canvas id="anomChart" height="200"></canvas></div>
   </div>
   <div class="panel" style="margin-top:18px">
+    <h2>Trends</h2>
+    <div id="trends"></div>
+  </div>
+  <div class="panel" style="margin-top:18px">
     <h2>Recent incidents</h2>
     <div id="recent"></div>
   </div>
@@ -102,6 +106,12 @@ async function load(){
     options:{ indexAxis:"y", plugins:{ legend:{ display:false } },
       scales:{ x:{ ticks:{ color:"#94a3b8" } }, y:{ ticks:{ color:"#94a3b8" } } } }
   });
+
+  const trends = data.trends || { insights: [] };
+  const insights = trends.insights || [];
+  document.getElementById("trends").innerHTML = insights.length
+    ? insights.map(i => `<div>• ${i}</div>`).join("")
+    : `<div class="empty">Not enough history yet to detect trends.</div>`;
 
   if (!recent.length){ document.getElementById("recent").innerHTML = `<div class="empty">No incidents recorded yet.</div>`; return; }
   const rows = recent.map(r => `<tr>

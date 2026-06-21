@@ -354,6 +354,87 @@ class MemoryManager:
             logger.error(f"Error retrieving recent incidents: {e}")
             return []
 
+    def get_trends(self, window: int = 10) -> Dict[str, Any]:
+        """
+        Detect regressions over recent history by comparing the most recent
+        incidents against the preceding ones (duration and block-rate trends).
+        """
+        empty = {"available": False, "sample_size": 0, "insights": []}
+        try:
+            conn = self._connect()
+            cursor = conn.cursor()
+            cursor.execute(self._q("""
+                SELECT duration_seconds, blocked
+                FROM incidents
+                ORDER BY id DESC
+                LIMIT ?
+            """), (window * 2,))
+            rows = cursor.fetchall()
+            conn.close()
+
+            if len(rows) < 4:
+                return empty
+
+            half = len(rows) // 2
+            recent = rows[:half]
+            previous = rows[half:]
+
+            def avg_duration(group):
+                vals = [r[0] for r in group if r[0] is not None]
+                return sum(vals) / len(vals) if vals else 0.0
+
+            def block_rate(group):
+                return sum(1 for r in group if r[1]) / len(group) if group else 0.0
+
+            rec_dur, prev_dur = avg_duration(recent), avg_duration(previous)
+            rec_block, prev_block = block_rate(recent), block_rate(previous)
+
+            dur_pct = ((rec_dur - prev_dur) / prev_dur * 100) if prev_dur else 0.0
+            block_delta = (rec_block - prev_block) * 100  # percentage points
+
+            def direction(pct, threshold=10.0):
+                if pct > threshold:
+                    return "rising"
+                if pct < -threshold:
+                    return "falling"
+                return "stable"
+
+            dur_dir = direction(dur_pct)
+            block_dir = direction(block_delta, threshold=10.0)
+
+            insights = []
+            if dur_dir == "rising":
+                insights.append(f"⏱️ Build duration is trending up ({dur_pct:+.0f}%).")
+            elif dur_dir == "falling":
+                insights.append(f"⏱️ Build duration is improving ({dur_pct:+.0f}%).")
+            if block_dir == "rising":
+                insights.append(f"🚫 Merges are being blocked more often ({block_delta:+.0f} pts).")
+            elif block_dir == "falling":
+                insights.append(f"✅ Fewer merges blocked recently ({block_delta:+.0f} pts).")
+            if not insights:
+                insights.append("No significant trend changes detected.")
+
+            return {
+                "available": True,
+                "sample_size": len(rows),
+                "duration": {
+                    "direction": dur_dir,
+                    "percent_change": round(dur_pct, 1),
+                    "recent_avg_seconds": round(rec_dur, 1),
+                    "previous_avg_seconds": round(prev_dur, 1),
+                },
+                "block_rate": {
+                    "direction": block_dir,
+                    "delta_points": round(block_delta, 1),
+                    "recent_percent": round(rec_block * 100, 1),
+                    "previous_percent": round(prev_block * 100, 1),
+                },
+                "insights": insights,
+            }
+        except Exception as e:
+            logger.error(f"Error computing trends: {e}")
+            return empty
+
     def get_memory_status(self) -> Dict[str, str]:
         """Check memory system health."""
         stm_status = "ok" if self.stm_path.exists() else "missing"

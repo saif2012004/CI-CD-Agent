@@ -354,6 +354,7 @@ async def dashboard_data():
         return {
             "metrics": metrics,
             "recent": MEMORY.get_recent_incidents(limit=20),
+            "trends": MEMORY.get_trends(),
         }
     except Exception as e:
         logger.error(f"Error building dashboard data: {e}")

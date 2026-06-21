@@ -443,6 +443,7 @@ CDN — no build step):
 
 - Summary cards: pipelines analyzed, success rate, critical/high counts, avg duration
 - Severity distribution chart + top-anomalies chart
+- **Trend insights** — regressions over recent history (build duration creeping up, block-rate rising)
 - Recent-incidents table with each run's block/allow verdict
 - Shows the active storage backend and last-analysis time
 
