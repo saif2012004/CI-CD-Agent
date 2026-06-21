@@ -4,6 +4,7 @@ Handles Slack and Email notifications for critical/high severity incidents
 """
 import logging
 import json
+import os
 from typing import Dict, Any, List, Optional
 import urllib.request
 import urllib.error
@@ -25,7 +26,8 @@ class Notifier:
             config: Notification configuration from rules.yaml
         """
         self.config = config
-        self.slack_webhook = config.get("slack_webhook")
+        # Environment variable takes precedence so secrets stay out of rules.yaml
+        self.slack_webhook = os.getenv("SLACK_WEBHOOK_URL") or config.get("slack_webhook")
         self.email_config = config.get("email_smtp")
         self.alert_on = config.get("alert_on", ["critical", "high"])
         logger.info(f"Notifier initialized. Alert levels: {self.alert_on}")

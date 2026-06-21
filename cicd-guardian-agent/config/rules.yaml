@@ -19,9 +19,10 @@ test_coverage:
   minimum_percentage: 80
 
 notifications:
-  # Slack webhook URL for notifications
-  # Replace with your actual webhook URL
-  slack_webhook: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  # Slack webhook URL for notifications.
+  # Leave as null and set the SLACK_WEBHOOK_URL environment variable instead,
+  # so the secret never lives in this file. The env var takes precedence.
+  slack_webhook: null
   
   # Email SMTP configuration (optional)
   # Uncomment and configure to enable email notifications

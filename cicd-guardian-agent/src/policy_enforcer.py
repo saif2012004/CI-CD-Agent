@@ -22,6 +22,7 @@ class PolicyEnforcer:
         self.config = config
         self.branch_protection = config.get("branch_protection", {})
         self.test_coverage = config.get("test_coverage", {})
+        self.build_monitoring = config.get("build_monitoring", {})
         logger.info("PolicyEnforcer initialized with config")
     
     def analyze_pipeline(
@@ -86,7 +87,7 @@ class PolicyEnforcer:
     def _check_duration(self, duration_seconds: int) -> List[Anomaly]:
         """Check if build duration exceeds threshold"""
         anomalies = []
-        max_duration = 600  # 10 minutes
+        max_duration = self.build_monitoring.get("max_duration_seconds", 600)  # default 10 minutes
         if duration_seconds > max_duration:
             anomalies.append(Anomaly(
                 type="excessive_duration",

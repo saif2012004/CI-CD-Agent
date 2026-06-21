@@ -10,7 +10,12 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    
+
+    # The project lives in a subdirectory, so all `run` steps execute there.
+    defaults:
+      run:
+        working-directory: cicd-guardian-agent
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
