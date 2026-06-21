@@ -23,6 +23,7 @@ class PolicyEnforcer:
         self.branch_protection = config.get("branch_protection", {})
         self.test_coverage = config.get("test_coverage", {})
         self.build_monitoring = config.get("build_monitoring", {})
+        self.policy = config.get("policy", {})
         logger.info("PolicyEnforcer initialized with config")
     
     def analyze_pipeline(
@@ -36,7 +37,9 @@ class PolicyEnforcer:
         test_coverage_percent: Optional[float] = None,
         is_direct_push: Optional[bool] = None,
         pr_approved: Optional[bool] = None,
-        pr_reviewers_count: Optional[int] = None
+        pr_reviewers_count: Optional[int] = None,
+        secrets_detected: Optional[List[str]] = None,
+        changed_files: Optional[List[Dict[str, Any]]] = None
     ) -> List[Anomaly]:
         """
         Analyze pipeline and detect all anomalies
@@ -63,8 +66,44 @@ class PolicyEnforcer:
         
         # Check test coverage
         anomalies.extend(self._check_test_coverage(test_coverage_percent))
-        
+
+        # Check for leaked secrets (redacted findings scanned in CI)
+        anomalies.extend(self._check_secrets(secrets_detected))
+
+        # Check for oversized files
+        anomalies.extend(self._check_large_files(changed_files))
+
         logger.info(f"Analysis complete: {len(anomalies)} anomalies detected")
+        return anomalies
+
+    def _check_secrets(self, secrets_detected: Optional[List[str]]) -> List[Anomaly]:
+        """Flag each redacted secret-scan finding as critical."""
+        anomalies = []
+        for finding in (secrets_detected or []):
+            anomalies.append(Anomaly(
+                type="secret_detected",
+                description=f"Potential secret committed: {finding}",
+                severity="critical"
+            ))
+        return anomalies
+
+    def _check_large_files(self, changed_files: Optional[List[Dict[str, Any]]]) -> List[Anomaly]:
+        """Flag changed files that exceed the configured size threshold."""
+        anomalies = []
+        max_mb = self.policy.get("max_file_size_mb", 5)
+        max_bytes = max_mb * 1024 * 1024
+        for f in (changed_files or []):
+            try:
+                size = int(f.get("size_bytes", 0))
+                path = f.get("path", "unknown")
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if size > max_bytes:
+                anomalies.append(Anomaly(
+                    type="large_file",
+                    description=f"Large file added/modified: {path} ({size / 1024 / 1024:.1f} MB > {max_mb} MB)",
+                    severity="medium"
+                ))
         return anomalies
     
     def _check_build_status(self, status: str) -> List[Anomaly]:
@@ -237,6 +276,12 @@ class PolicyEnforcer:
         
         if "security_vulnerability" in anomaly_types:
             recommendation_parts.append("• Update dependencies to patch security vulnerabilities")
+
+        if "secret_detected" in anomaly_types:
+            recommendation_parts.append("• Remove the committed secret, rotate it immediately, and purge it from git history")
+
+        if "large_file" in anomaly_types:
+            recommendation_parts.append("• Remove the large file from the commit (use Git LFS or external storage instead)")
         
         if "branch_protection_violation" in anomaly_types:
             recommendation_parts.append("• Revert direct push and create a pull request instead")

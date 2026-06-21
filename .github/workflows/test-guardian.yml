@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # full history so the diff-based policy checks work
       
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -127,6 +129,48 @@ jobs:
             PR_NUMBER_JSON="${{ github.event.pull_request.number }}"
           fi
 
+          # --- Diff-based policy signals (computed here in CI) ---
+          # Resolve the base commit to diff against.
+          DIFF_BASE=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            DIFF_BASE="${{ github.event.pull_request.base.sha }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            DIFF_BASE="${{ github.event.before }}"
+          fi
+
+          : > /tmp/diff.txt
+          echo "[]" > /tmp/files.json
+          if [ -n "$DIFF_BASE" ] && [ "$DIFF_BASE" != "0000000000000000000000000000000000000000" ]; then
+            git diff "$DIFF_BASE" "$COMMIT_SHA" 2>/dev/null | head -c 200000 > /tmp/diff.txt || : > /tmp/diff.txt
+            git diff --name-only "$DIFF_BASE" "$COMMIT_SHA" 2>/dev/null > /tmp/changed.txt || : > /tmp/changed.txt
+            python - <<'PY'
+import json, os
+root = os.environ.get("GITHUB_WORKSPACE", ".")
+files = []
+try:
+    for line in open("/tmp/changed.txt"):
+        p = line.strip()
+        full = os.path.join(root, p)
+        if p and os.path.isfile(full):
+            files.append({"path": p, "size_bytes": os.path.getsize(full)})
+except Exception:
+    pass
+json.dump(files, open("/tmp/files.json", "w"))
+PY
+          fi
+
+          # Redacted secret scan — runs in CI so raw secrets never leave the runner.
+          python -c "
+import json, sys
+sys.path.insert(0, '.')
+try:
+    from src.scanners import scan_diff_for_secrets
+    diff = open('/tmp/diff.txt', encoding='utf-8', errors='replace').read()
+    print(json.dumps(scan_diff_for_secrets(diff)))
+except Exception:
+    print('[]')
+" > /tmp/secrets.json || echo "[]" > /tmp/secrets.json
+
           # Calculate duration (approximate)
           DURATION=$SECONDS
 
@@ -152,6 +196,22 @@ jobs:
           EOF
           )
 
+          # Merge the diff-derived signals into the payload (safely, via json).
+          echo "$PAYLOAD" > /tmp/payload.json
+          python - <<'PY'
+import json
+p = json.load(open("/tmp/payload.json"))
+try:
+    p["changed_files"] = json.load(open("/tmp/files.json"))
+except Exception:
+    p["changed_files"] = []
+try:
+    p["secrets_detected"] = json.load(open("/tmp/secrets.json"))
+except Exception:
+    p["secrets_detected"] = []
+json.dump(p, open("/tmp/payload.json", "w"))
+PY
+
           echo "Sending to Guardian Agent at: $GUARDIAN_URL"
           # NOTE: payload contains a token, so it is intentionally not echoed.
 
@@ -160,7 +220,7 @@ jobs:
           RESPONSE=$(curl -X POST "$GUARDIAN_URL/analyze" \
             -H "Content-Type: application/json" \
             -H "X-API-Key: $GUARDIAN_API_KEY" \
-            -d "$PAYLOAD" \
+            -d @/tmp/payload.json \
             -w "\nHTTP_CODE:%{http_code}" \
             --connect-timeout 10 \
             --max-time 30 \

@@ -30,6 +30,10 @@ class PipelineAnalysisRequest(BaseModel):
     github_repo: Optional[str] = Field(None, description="GitHub repository in 'owner/name' form")
     github_pr_number: Optional[int] = Field(None, ge=1, description="Pull request number, if this run is for a PR")
     github_token: Optional[str] = Field(None, description="GitHub token used to read PR state and post Check Run / comment")
+    # Diff-derived signals computed in CI (secrets are scanned there and only
+    # redacted descriptors are sent — the raw secret value never leaves CI).
+    secrets_detected: Optional[List[str]] = Field(None, description="Redacted secret-scan findings, e.g. 'AWS Access Key in config.py'")
+    changed_files: Optional[List[Dict[str, Any]]] = Field(None, description="Changed files as [{path, size_bytes}] for large-file detection")
 
     model_config = ConfigDict(
         json_schema_extra={

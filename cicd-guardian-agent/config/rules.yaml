@@ -18,6 +18,11 @@ test_coverage:
   # Minimum test coverage percentage required
   minimum_percentage: 80
 
+# Diff-based policy checks (signals computed in CI)
+policy:
+  # Flag changed files larger than this many megabytes
+  max_file_size_mb: 5
+
 notifications:
   # Slack webhook URL for notifications.
   # Leave as null and set the SLACK_WEBHOOK_URL environment variable instead,

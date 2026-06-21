@@ -46,6 +46,7 @@ CI-CD-Agent/                       # Repository root
     │   ├── notifier.py            # Slack + Email notifications
     │   ├── github_client.py       # Reads PR state, posts Check Runs & PR comments
     │   ├── ai_analyzer.py         # Optional Claude-powered root-cause analysis
+    │   ├── scanners.py            # In-CI diff secret scanner (redacted findings)
     │   ├── dashboard.py           # Self-contained HTML metrics dashboard
     │   ├── memory_manager.py      # STM/LTM with corruption handling
     │   ├── models.py              # Pydantic request/response models
@@ -288,7 +289,9 @@ The agent detects the following anomalies:
 | **Build Failure** | Pipeline status = failed | 🟠 High |
 | **Build Aborted** | Pipeline status = aborted | 🟠 High |
 | **Insufficient Reviewers** | PR reviewers < minimum required | 🟠 High |
+| **Secret Detected** | Secret/key found in the diff (scanned in CI, redacted) | 🔴 Critical |
 | **Excessive Duration** | Duration > threshold (default 600s, configurable) | 🟡 Medium |
+| **Large File** | Changed file exceeds size threshold (default 5 MB, configurable) | 🟡 Medium |
 
 ### Severity Calculation
 
@@ -508,6 +511,11 @@ The agent enforces the following policies (configurable via `rules.yaml`):
 ### 5. Code Review
 - ✅ Minimum reviewers requirement enforced
 - ✅ PR must be explicitly approved
+
+### 6. Diff Hygiene
+- 🚨 No secrets committed — the diff is scanned **in CI** and only redacted
+  findings (rule + file, never the value) are sent to the agent
+- ✅ No oversized files (default 5 MB, via `policy.max_file_size_mb`)
 
 ---
 

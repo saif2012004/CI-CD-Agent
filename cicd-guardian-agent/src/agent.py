@@ -201,7 +201,9 @@ async def analyze_pipeline(request: PipelineAnalysisRequest):
             test_coverage_percent=request.test_coverage_percent,
             is_direct_push=request.is_direct_push,
             pr_approved=pr_approved,
-            pr_reviewers_count=pr_reviewers_count
+            pr_reviewers_count=pr_reviewers_count,
+            secrets_detected=request.secrets_detected,
+            changed_files=request.changed_files
         )
         
         # Calculate overall severity
