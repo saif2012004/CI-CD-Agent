@@ -23,8 +23,13 @@ class PipelineAnalysisRequest(BaseModel):
     commit_sha: str = Field(..., description="Git commit SHA")
     test_coverage_percent: Optional[float] = Field(None, ge=0, le=100, description="Test coverage percentage")
     is_direct_push: Optional[bool] = Field(None, description="Whether this was a direct push to branch")
-    pr_approved: Optional[bool] = Field(None, description="Whether PR was approved")
-    pr_reviewers_count: Optional[int] = Field(None, ge=0, description="Number of PR reviewers")
+    pr_approved: Optional[bool] = Field(None, description="Whether PR was approved (auto-filled from GitHub when omitted)")
+    pr_reviewers_count: Optional[int] = Field(None, ge=0, description="Number of PR reviewers (auto-filled from GitHub when omitted)")
+    # Optional GitHub context: when provided (with a token), the agent reads real
+    # PR review state and posts a Check Run / PR comment back to GitHub.
+    github_repo: Optional[str] = Field(None, description="GitHub repository in 'owner/name' form")
+    github_pr_number: Optional[int] = Field(None, ge=1, description="Pull request number, if this run is for a PR")
+    github_token: Optional[str] = Field(None, description="GitHub token used to read PR state and post Check Run / comment")
 
     model_config = ConfigDict(
         json_schema_extra={

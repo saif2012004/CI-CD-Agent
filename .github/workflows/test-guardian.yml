@@ -11,6 +11,12 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
+    # Allow the agent (using the passed token) to post a Check Run and PR comment.
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+
     # The project lives in a subdirectory, so all `run` steps execute there.
     defaults:
       run:
@@ -30,7 +36,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pytest pytest-cov
+          pip install pytest pytest-cov httpx
       
       - name: Run tests with coverage
         id: test
@@ -80,6 +86,9 @@ jobs:
         env:
           GUARDIAN_URL: ${{ secrets.GUARDIAN_AGENT_URL || 'http://localhost:8000' }}
           GUARDIAN_API_KEY: ${{ secrets.GUARDIAN_API_KEY }}
+          # Ephemeral, repo-scoped token; the agent uses it to read PR review
+          # state and post the Check Run / PR comment. Expires when the job ends.
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Determine pipeline status
           if [ "${{ steps.test.outcome }}" = "failure" ] || [ "${{ steps.install.outcome }}" = "failure" ]; then
@@ -105,23 +114,24 @@ jobs:
             CVES_JSON=$(echo "$CVES" | python -c "import sys, json; print(json.dumps(sys.stdin.read().strip().split(',')))")
           fi
           
-          # Determine if direct push or PR
+          # Determine push vs PR. For PRs, use the PR head SHA (so the Check Run
+          # lands on the PR) and let the agent fetch real approval data.
           IS_DIRECT_PUSH="false"
-          PR_APPROVED="false"
-          PR_REVIEWERS=0
-          
+          COMMIT_SHA="${{ github.sha }}"
+          PR_NUMBER_JSON="null"
+
           if [ "${{ github.event_name }}" = "push" ]; then
             IS_DIRECT_PUSH="true"
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            IS_DIRECT_PUSH="false"
-            # Get PR approval status (simplified for demo)
-            PR_REVIEWERS=0
+            COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+            PR_NUMBER_JSON="${{ github.event.pull_request.number }}"
           fi
-          
+
           # Calculate duration (approximate)
           DURATION=$SECONDS
-          
-          # Prepare payload
+
+          # Prepare payload. pr_approved / pr_reviewers_count are sent as null so
+          # the agent resolves the real values from GitHub via github_pr_number.
           PAYLOAD=$(cat <<EOF
           {
             "pipeline_id": "${{ github.run_id }}",
@@ -130,18 +140,21 @@ jobs:
             "logs": "GitHub Actions run #${{ github.run_number }} on ${{ github.ref_name }}",
             "vulnerabilities": $CVES_JSON,
             "branch": "${{ github.ref_name }}",
-            "commit_sha": "${{ github.sha }}",
+            "commit_sha": "$COMMIT_SHA",
             "test_coverage_percent": $COVERAGE,
             "is_direct_push": $IS_DIRECT_PUSH,
-            "pr_approved": $PR_APPROVED,
-            "pr_reviewers_count": $PR_REVIEWERS
+            "pr_approved": null,
+            "pr_reviewers_count": null,
+            "github_repo": "${{ github.repository }}",
+            "github_pr_number": $PR_NUMBER_JSON,
+            "github_token": "$GH_TOKEN"
           }
           EOF
           )
-          
+
           echo "Sending to Guardian Agent at: $GUARDIAN_URL"
-          echo "Payload: $PAYLOAD"
-          
+          # NOTE: payload contains a token, so it is intentionally not echoed.
+
           # Send to Guardian Agent (X-API-Key only matters if the agent has
           # GUARDIAN_API_KEY set; an empty header is harmless otherwise)
           RESPONSE=$(curl -X POST "$GUARDIAN_URL/analyze" \

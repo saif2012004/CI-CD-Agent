@@ -44,12 +44,12 @@ CI-CD-Agent/                       # Repository root
     │   ├── agent.py               # Main FastAPI application
     │   ├── policy_enforcer.py     # Branch protection + test coverage
     │   ├── notifier.py            # Slack + Email notifications
+    │   ├── github_client.py       # Reads PR state, posts Check Runs & PR comments
     │   ├── memory_manager.py      # STM/LTM with corruption handling
     │   ├── models.py              # Pydantic request/response models
     │   ├── memory.json            # Short-term memory (auto-created, gitignored)
     │   └── memory.db              # Long-term memory (auto-created, gitignored)
-    ├── tests/
-    │   └── test_policy_enforcer.py, test_auth.py   # Pytest suite
+    ├── tests/                     # Pytest suite (policy, auth, github, /analyze)
     ├── conftest.py                # Test path setup
     ├── config/
     │   └── rules.yaml             # Fully configurable policies
@@ -349,10 +349,26 @@ every push/PR and:
 
 2. **Runs a security scan** (`pip-audit`) to surface CVEs.
 
-3. **Sends the pipeline result to the Guardian Agent** for analysis and
-   displays the color-coded severity.
+3. **Sends the pipeline result to the Guardian Agent**, passing the repo, PR
+   number, and a short-lived `github.token`.
 
-4. **Blocks merge if critical issues are detected.**
+4. **The agent acts on GitHub autonomously** (see below).
+
+### 🤖 The agent acts on GitHub (autonomous mode)
+
+When `/analyze` receives GitHub context (`github_repo`, `github_pr_number`,
+`github_token`), the agent does the work itself instead of just returning a flag:
+
+- **Reads the *real* PR review state** from GitHub (approvals, reviewers,
+  changes-requested) and uses it for policy checks — no more stubbed PR data, so
+  a properly approved PR is no longer falsely flagged.
+- **Posts a Check Run** named *"CI/CD Guardian"* on the commit: `failure` when
+  `block_merge` is true, `neutral` for non-blocking issues, `success` when clean.
+  Add this check to your branch-protection rules to **actually gate merges**.
+- **Comments its findings** on the pull request (severity table + recommendation).
+
+All GitHub calls are best-effort: if the token is missing or a call fails, the
+analysis still completes normally.
 
 ### Setup GitHub Actions
 
@@ -360,16 +376,19 @@ every push/PR and:
    - Repository → Settings → Secrets and variables → Actions
    - New secret: `GUARDIAN_AGENT_URL` = your agent URL
 
-2. *(Optional)* If your agent enforces auth, add a `GUARDIAN_API_KEY` secret with
-   the same value as the agent's `GUARDIAN_API_KEY` env var. The workflow sends
-   it as the `X-API-Key` header (harmless when auth is disabled).
+2. The workflow grants `checks: write` + `pull-requests: write` and passes the
+   built-in `github.token` to the agent — no PAT required for same-repo runs.
 
-3. Push to trigger the workflow:
-   ```bash
-   git push origin main
-   ```
+3. *(Optional)* If your agent enforces auth, add a `GUARDIAN_API_KEY` secret
+   matching the agent's `GUARDIAN_API_KEY` env var (sent as `X-API-Key`).
 
-4. Watch the action run and see Guardian in action!
+4. *(Recommended)* In branch protection, require the **"CI/CD Guardian"** status
+   check so blocked merges are actually prevented.
+
+5. Push to trigger the workflow and watch Guardian act on your PR!
+
+> **Security note:** the `github.token` passed to the agent is ephemeral
+> (expires when the job ends) and repo-scoped. The workflow never echoes it.
 
 ---
 

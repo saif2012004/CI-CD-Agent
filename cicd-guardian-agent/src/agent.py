@@ -21,6 +21,7 @@ from src.models import (
 from src.policy_enforcer import PolicyEnforcer
 from src.notifier import Notifier
 from src.memory_manager import MemoryManager
+from src.github_client import GitHubClient
 
 # Configure logging
 LOG_DIR = Path("logs")
@@ -130,6 +131,23 @@ app = FastAPI(
 )
 
 
+def _build_pr_comment(severity, anomalies, recommendation, block_merge) -> str:
+    """Format the agent's findings as a Markdown PR comment."""
+    verdict = "🚫 **Merge blocked**" if block_merge else "⚠️ **Issues found (non-blocking)**"
+    lines = [
+        "## 🛡️ CI/CD Guardian",
+        "",
+        f"{verdict} — overall severity: **{severity.upper()}**",
+        "",
+        "| Severity | Issue |",
+        "|----------|-------|",
+    ]
+    for a in anomalies:
+        lines.append(f"| {a.severity} | {a.description} |")
+    lines += ["", "### Recommendation", "", recommendation]
+    return "\n".join(lines)
+
+
 @app.post("/analyze", response_model=PipelineAnalysisResponse, dependencies=[Depends(verify_api_key)])
 async def analyze_pipeline(request: PipelineAnalysisRequest):
     """
@@ -147,7 +165,25 @@ async def analyze_pipeline(request: PipelineAnalysisRequest):
     """
     try:
         logger.info(f"Analyzing pipeline: {request.pipeline_id}")
-        
+
+        # Resolve optional GitHub integration so the agent can act on its own.
+        gh_client = None
+        token = request.github_token or os.getenv("GITHUB_TOKEN")
+        if token and request.github_repo:
+            gh_client = GitHubClient(token, request.github_repo)
+
+        # Prefer real PR review data from GitHub over caller-supplied values.
+        pr_approved = request.pr_approved
+        pr_reviewers_count = request.pr_reviewers_count
+        if gh_client and request.github_pr_number:
+            review_status = gh_client.get_pr_review_status(request.github_pr_number)
+            if review_status:
+                if pr_approved is None:
+                    pr_approved = review_status["approved"]
+                if pr_reviewers_count is None:
+                    pr_reviewers_count = review_status["reviewers_count"]
+                logger.info(f"Resolved real PR review status: {review_status}")
+
         # Perform policy analysis
         anomalies = POLICY_ENFORCER.analyze_pipeline(
             status=request.status,
@@ -158,8 +194,8 @@ async def analyze_pipeline(request: PipelineAnalysisRequest):
             logs=request.logs,
             test_coverage_percent=request.test_coverage_percent,
             is_direct_push=request.is_direct_push,
-            pr_approved=request.pr_approved,
-            pr_reviewers_count=request.pr_reviewers_count
+            pr_approved=pr_approved,
+            pr_reviewers_count=pr_reviewers_count
         )
         
         # Calculate overall severity
@@ -206,7 +242,25 @@ async def analyze_pipeline(request: PipelineAnalysisRequest):
             recommendation=recommendation,
             block_merge=block_merge
         )
-        
+
+        # Act on GitHub: post a Check Run (gates merges) and comment findings.
+        if gh_client:
+            if not anomalies:
+                conclusion = "success"
+                title = "All policy checks passed"
+            elif block_merge:
+                conclusion = "failure"
+                title = f"{severity.upper()} - {len(anomalies)} issue(s) found"
+            else:
+                conclusion = "neutral"
+                title = f"{severity.upper()} - {len(anomalies)} issue(s) found"
+            gh_client.post_check_run(request.commit_sha, conclusion, title, recommendation)
+            if request.github_pr_number and anomalies:
+                gh_client.post_pr_comment(
+                    request.github_pr_number,
+                    _build_pr_comment(severity, anomalies, recommendation, block_merge),
+                )
+
         logger.info(f"Analysis complete: {severity} severity, {len(anomalies)} anomalies")
         return response
     
