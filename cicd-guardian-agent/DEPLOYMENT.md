@@ -155,6 +155,21 @@ If you need to add environment variables:
    - `GUARDIAN_API_KEY`: If set, the `/analyze` and `/metrics` endpoints
      require an `X-API-Key` header matching this value. Leave unset to disable
      authentication (e.g. for local/demo use).
+   - `DATABASE_URL`: Postgres connection string (e.g. from a Render Postgres
+     instance) for **durable** long-term memory. Without it the agent uses a
+     local SQLite file, which is wiped whenever the free-tier service restarts.
+
+### Making metrics durable (recommended)
+
+The Render free-tier filesystem is ephemeral, so SQLite-backed metrics reset on
+every restart/redeploy. To persist them:
+
+1. In Render, create a **PostgreSQL** instance (free tier available).
+2. Copy its **Internal Database URL**.
+3. Add it as the `DATABASE_URL` environment variable on the web service.
+
+The agent auto-creates its schema on first run; verify via `/health`
+(`memory_status.ltm_backend` should read `postgres`).
 
 ## Custom Domain (Optional)
 

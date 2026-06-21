@@ -131,6 +131,7 @@ All are optional:
 | Variable | Purpose |
 |----------|---------|
 | `PORT` | Port to bind (default `8000`). |
+| `DATABASE_URL` | Postgres connection string for durable long-term memory. Unset = local SQLite file. |
 | `SLACK_WEBHOOK_URL` | Slack webhook for notifications; overrides `config/rules.yaml`. |
 | `GUARDIAN_API_KEY` | If set, requires an `X-API-Key` header on `/analyze` and `/metrics`. Unset = auth disabled. |
 | `GUARDIAN_AGENT_URL` | *(CI secret)* URL the GitHub Actions workflow posts results to. |
@@ -411,18 +412,22 @@ analysis still completes normally.
 
 ### Long-Term Memory (LTM)
 
-**File:** `src/memory.db` (SQLite)  
+**Backend:** Postgres when `DATABASE_URL` is set, otherwise a local SQLite file
+(`src/memory.db`).  
 **Purpose:** Full incident history and metrics
 
-**Tables:**
-- `incidents`: Complete pipeline analysis records
-- `metrics`: Aggregated statistics
+**Why it matters:** on an ephemeral host (e.g. Render free tier) the SQLite file
+is wiped on every restart/redeploy, so metrics reset. Point `DATABASE_URL` at a
+managed Postgres database to make incident history and metrics **durable**.
+
+**Table:** `incidents` — complete pipeline analysis records
 
 **Features:**
-- Auto-created on first run
-- Auto-recovery from corruption
+- Auto-created on first run (schema is identical across both backends)
+- Auto-recovery from corruption (SQLite)
 - Indexed for fast queries
-- Persistent across restarts
+- Durable across restarts when using Postgres
+- The active backend is reported in `/health` (`memory_status.ltm_backend`)
 
 ---
 

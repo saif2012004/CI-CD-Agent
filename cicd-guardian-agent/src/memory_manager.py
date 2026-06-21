@@ -1,45 +1,80 @@
 """
 Memory Manager Module
-Handles Short-Term Memory (JSON) and Long-Term Memory (SQLite)
-Includes corruption detection and auto-recovery
+Handles Short-Term Memory (JSON) and Long-Term Memory (SQLite or Postgres).
+
+Long-term memory uses Postgres when DATABASE_URL is set (durable across
+restarts / redeploys), and falls back to a local SQLite file otherwise.
+Includes corruption detection and auto-recovery for the SQLite backend.
 """
 import json
 import sqlite3
 import logging
 import os
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 
+def detect_backend() -> Tuple[str, Optional[str]]:
+    """
+    Decide which LTM backend to use based on the DATABASE_URL env var.
+
+    Returns (backend, url) where backend is "postgres" or "sqlite".
+    """
+    url = os.getenv("DATABASE_URL")
+    if url and url.startswith(("postgres://", "postgresql://")):
+        return "postgres", url
+    return "sqlite", None
+
+
+def to_paramstyle(sql: str, backend: str) -> str:
+    """Translate '?' placeholders to '%s' for the Postgres driver."""
+    return sql.replace("?", "%s") if backend == "postgres" else sql
+
+
 class MemoryManager:
-    """Manages agent memory with STM and LTM"""
-    
+    """Manages agent memory with STM (JSON) and LTM (SQLite/Postgres)."""
+
     def __init__(self, stm_path: str = "src/memory.json", ltm_path: str = "src/memory.db"):
         """
-        Initialize memory manager
-        
+        Initialize memory manager.
+
         Args:
-            stm_path: Path to short-term memory JSON file
-            ltm_path: Path to long-term memory SQLite database
+            stm_path: Path to short-term memory JSON file.
+            ltm_path: Path to SQLite database (ignored when using Postgres).
         """
         self.stm_path = Path(stm_path)
         self.ltm_path = Path(ltm_path)
-        
-        # Ensure directories exist
+
+        # Choose the LTM backend.
+        self.backend, self.db_url = detect_backend()
+        if self.backend == "postgres":
+            try:
+                import psycopg  # noqa: F401
+            except ImportError:
+                logger.error(
+                    "DATABASE_URL points at Postgres but psycopg is not installed; "
+                    "falling back to SQLite"
+                )
+                self.backend, self.db_url = "sqlite", None
+
+        # Ensure directories exist (STM is always a file; LTM only for SQLite).
         self.stm_path.parent.mkdir(parents=True, exist_ok=True)
-        self.ltm_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Initialize memories
+        if self.backend == "sqlite":
+            self.ltm_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Initialize memories.
         self.stm = self._load_stm()
         self._init_ltm()
-        
-        logger.info("MemoryManager initialized")
-    
+
+        logger.info(f"MemoryManager initialized (LTM backend: {self.backend})")
+
+    # ------------------------------------------------------------------ STM
+
     def _load_stm(self) -> Dict[str, Any]:
-        """Load short-term memory from JSON file with corruption handling"""
+        """Load short-term memory from JSON file with corruption handling."""
         try:
             if self.stm_path.exists():
                 with open(self.stm_path, 'r', encoding='utf-8') as f:
@@ -50,12 +85,11 @@ class MemoryManager:
             logger.error(f"STM corrupted, recreating: {e}")
         except Exception as e:
             logger.error(f"Error loading STM: {e}")
-        
-        # Return default STM structure
+
         return self._get_default_stm()
-    
+
     def _get_default_stm(self) -> Dict[str, Any]:
-        """Get default STM structure"""
+        """Get default STM structure."""
         return {
             "last_pipeline": None,
             "alert_count": 0,
@@ -63,9 +97,9 @@ class MemoryManager:
             "total_analyzed": 0,
             "agent_status": "active"
         }
-    
+
     def _save_stm(self) -> bool:
-        """Save short-term memory to JSON file"""
+        """Save short-term memory to JSON file."""
         try:
             with open(self.stm_path, 'w', encoding='utf-8') as f:
                 json.dump(self.stm, f, indent=2, ensure_ascii=False)
@@ -73,17 +107,36 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"Failed to save STM: {e}")
             return False
-    
+
+    # ------------------------------------------------------------------ LTM
+
+    def _connect(self):
+        """Open a connection to the active LTM backend."""
+        if self.backend == "postgres":
+            import psycopg
+            return psycopg.connect(self.db_url)
+        return sqlite3.connect(str(self.ltm_path))
+
+    def _q(self, sql: str) -> str:
+        """Adapt placeholder style to the active backend."""
+        return to_paramstyle(sql, self.backend)
+
     def _init_ltm(self) -> None:
-        """Initialize long-term memory SQLite database"""
+        """Initialize the long-term memory database (idempotent)."""
+        if self.backend == "postgres":
+            pk = "SERIAL PRIMARY KEY"
+            bool_default = "BOOLEAN DEFAULT FALSE"
+        else:
+            pk = "INTEGER PRIMARY KEY AUTOINCREMENT"
+            bool_default = "BOOLEAN DEFAULT 0"
+
         try:
-            conn = sqlite3.connect(str(self.ltm_path))
+            conn = self._connect()
             cursor = conn.cursor()
-            
-            # Create incidents table
-            cursor.execute("""
+
+            cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS incidents (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id {pk},
                     pipeline_id TEXT NOT NULL,
                     timestamp TEXT NOT NULL,
                     status TEXT NOT NULL,
@@ -94,74 +147,56 @@ class MemoryManager:
                     anomaly_count INTEGER,
                     anomalies TEXT,
                     recommendation TEXT,
-                    blocked BOOLEAN DEFAULT 0
+                    blocked {bool_default}
                 )
             """)
-            
-            # Create metrics table
+
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS metrics (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    total_analyzed INTEGER,
-                    critical_count INTEGER,
-                    high_count INTEGER,
-                    medium_count INTEGER,
-                    low_count INTEGER,
-                    avg_duration REAL
-                )
-            """)
-            
-            # Create index for faster queries
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_pipeline_id 
+                CREATE INDEX IF NOT EXISTS idx_pipeline_id
                 ON incidents(pipeline_id)
             """)
-            
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_severity 
+                CREATE INDEX IF NOT EXISTS idx_severity
                 ON incidents(severity)
             """)
-            
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_timestamp 
+                CREATE INDEX IF NOT EXISTS idx_timestamp
                 ON incidents(timestamp)
             """)
-            
+
             conn.commit()
             conn.close()
             logger.info("LTM database initialized")
-        
+
         except sqlite3.DatabaseError as e:
+            # File-level corruption recovery only applies to SQLite.
             logger.error(f"LTM database corrupted, recreating: {e}")
-            # Remove corrupted database
             try:
-                if self.ltm_path.exists():
+                if self.backend == "sqlite" and self.ltm_path.exists():
                     self.ltm_path.unlink()
-                # Retry initialization
-                self._init_ltm()
+                    self._init_ltm()
             except Exception as retry_error:
                 logger.error(f"Failed to recreate LTM: {retry_error}")
-        
+
         except Exception as e:
             logger.error(f"Error initializing LTM: {e}")
-    
+
     def update_stm(self, pipeline_id: str, severity: str) -> None:
-        """Update short-term memory with new analysis"""
+        """Update short-term memory with new analysis."""
         try:
             self.stm["last_pipeline"] = pipeline_id
             self.stm["last_analyzed"] = datetime.now(timezone.utc).isoformat()
             self.stm["total_analyzed"] = self.stm.get("total_analyzed", 0) + 1
-            
+
             if severity in ["critical", "high"]:
                 self.stm["alert_count"] = self.stm.get("alert_count", 0) + 1
-            
+
             self._save_stm()
             logger.debug(f"STM updated for pipeline {pipeline_id}")
-        
+
         except Exception as e:
             logger.error(f"Error updating STM: {e}")
-    
+
     def save_incident(
         self,
         pipeline_id: str,
@@ -174,24 +209,23 @@ class MemoryManager:
         recommendation: str,
         blocked: bool
     ) -> bool:
-        """Save incident to long-term memory"""
+        """Save incident to long-term memory."""
         try:
-            conn = sqlite3.connect(str(self.ltm_path))
+            conn = self._connect()
             cursor = conn.cursor()
-            
-            # Serialize anomalies
+
             anomalies_json = json.dumps([{
                 "type": a.type,
                 "description": a.description,
                 "severity": a.severity
             } for a in anomalies])
-            
-            cursor.execute("""
-                INSERT INTO incidents 
-                (pipeline_id, timestamp, status, severity, duration_seconds, 
+
+            cursor.execute(self._q("""
+                INSERT INTO incidents
+                (pipeline_id, timestamp, status, severity, duration_seconds,
                  branch, commit_sha, anomaly_count, anomalies, recommendation, blocked)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
+            """), (
                 pipeline_id,
                 datetime.now(timezone.utc).isoformat(),
                 status,
@@ -204,52 +238,47 @@ class MemoryManager:
                 recommendation,
                 blocked
             ))
-            
+
             conn.commit()
             conn.close()
             logger.debug(f"Incident saved to LTM: {pipeline_id}")
             return True
-        
+
         except Exception as e:
             logger.error(f"Error saving incident to LTM: {e}")
             return False
-    
+
     def get_metrics(self) -> Dict[str, Any]:
-        """Retrieve comprehensive metrics from LTM"""
+        """Retrieve comprehensive metrics from LTM."""
         try:
-            conn = sqlite3.connect(str(self.ltm_path))
+            conn = self._connect()
             cursor = conn.cursor()
-            
-            # Total pipelines analyzed
+
             cursor.execute("SELECT COUNT(*) FROM incidents")
             total = cursor.fetchone()[0]
-            
-            # Count by severity
+
             cursor.execute("""
-                SELECT severity, COUNT(*) 
-                FROM incidents 
+                SELECT severity, COUNT(*)
+                FROM incidents
                 GROUP BY severity
             """)
             severity_counts = dict(cursor.fetchall())
-            
-            # Average duration
+
             cursor.execute("SELECT AVG(duration_seconds) FROM incidents")
-            avg_duration = cursor.fetchone()[0] or 0.0
-            
-            # Success rate (no anomalies)
+            avg_duration = float(cursor.fetchone()[0] or 0.0)
+
             cursor.execute("SELECT COUNT(*) FROM incidents WHERE anomaly_count = 0")
             success_count = cursor.fetchone()[0]
             success_rate = (success_count / total * 100) if total > 0 else 100.0
-            
-            # Top anomalies
+
             cursor.execute("""
-                SELECT anomalies 
-                FROM incidents 
+                SELECT anomalies
+                FROM incidents
                 WHERE anomaly_count > 0
                 ORDER BY timestamp DESC
                 LIMIT 100
             """)
-            
+
             anomaly_counts: Dict[str, int] = {}
             for row in cursor.fetchall():
                 try:
@@ -257,17 +286,16 @@ class MemoryManager:
                     for anomaly in anomalies:
                         atype = anomaly.get("type", "unknown")
                         anomaly_counts[atype] = anomaly_counts.get(atype, 0) + 1
-                except:
+                except Exception:
                     pass
-            
-            # Convert to list of dicts sorted by count
+
             top_anomalies = [
-                {"type": k, "count": v} 
+                {"type": k, "count": v}
                 for k, v in sorted(anomaly_counts.items(), key=lambda x: x[1], reverse=True)[:5]
             ]
-            
+
             conn.close()
-            
+
             return {
                 "total_pipelines_analyzed": total,
                 "critical_incidents": severity_counts.get("critical", 0),
@@ -279,7 +307,7 @@ class MemoryManager:
                 "last_analysis_timestamp": self.stm.get("last_analyzed"),
                 "top_anomalies": top_anomalies
             }
-        
+
         except Exception as e:
             logger.error(f"Error retrieving metrics: {e}")
             return {
@@ -293,21 +321,20 @@ class MemoryManager:
                 "last_analysis_timestamp": None,
                 "top_anomalies": []
             }
-    
+
     def get_memory_status(self) -> Dict[str, str]:
-        """Check memory system health"""
+        """Check memory system health."""
         stm_status = "ok" if self.stm_path.exists() else "missing"
-        ltm_status = "ok" if self.ltm_path.exists() else "missing"
-        
-        # Test LTM connectivity
+
+        ltm_status = "ok"
         try:
-            conn = sqlite3.connect(str(self.ltm_path))
+            conn = self._connect()
             conn.close()
         except Exception:
             ltm_status = "corrupted"
-        
+
         return {
             "stm": stm_status,
-            "ltm": ltm_status
+            "ltm": ltm_status,
+            "ltm_backend": self.backend
         }
-
