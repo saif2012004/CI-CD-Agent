@@ -45,6 +45,7 @@ CI-CD-Agent/                       # Repository root
     │   ├── policy_enforcer.py     # Branch protection + test coverage
     │   ├── notifier.py            # Slack + Email notifications
     │   ├── github_client.py       # Reads PR state, posts Check Runs & PR comments
+    │   ├── dashboard.py           # Self-contained HTML metrics dashboard
     │   ├── memory_manager.py      # STM/LTM with corruption handling
     │   ├── models.py              # Pydantic request/response models
     │   ├── memory.json            # Short-term memory (auto-created, gitignored)
@@ -177,6 +178,7 @@ To use this agent in your projects:
 |----------|--------|-------------|
 | `/analyze` | POST | Analyze pipeline and detect anomalies |
 | `/metrics` | GET | Get comprehensive metrics |
+| `/dashboard` | GET | Human-facing metrics dashboard (HTML) |
 | `/health` | GET | Health check with memory status |
 | `/docs` | GET | Interactive API documentation |
 
@@ -431,6 +433,23 @@ managed Postgres database to make incident history and metrics **durable**.
 
 ---
 
+## 📊 Dashboard
+
+A self-contained web dashboard is served at **`/dashboard`** (HTML, Chart.js via
+CDN — no build step):
+
+- Summary cards: pipelines analyzed, success rate, critical/high counts, avg duration
+- Severity distribution chart + top-anomalies chart
+- Recent-incidents table with each run's block/allow verdict
+- Shows the active storage backend and last-analysis time
+
+The page is open; its data feed (`/dashboard/data`) honors the optional API key.
+If `GUARDIAN_API_KEY` is set, open `/dashboard?key=YOUR_API_KEY`.
+
+**Live:** https://ci-cd-agent.onrender.com/dashboard
+
+---
+
 ## 📊 Policies Enforced
 
 The agent enforces the following policies (configurable via `rules.yaml`):
@@ -591,6 +610,7 @@ The agent auto-recovers! If you see corruption warnings:
 - [x] GitHub Actions workflow
 - [x] FastAPI REST API
 - [x] Self-contained block/allow verdict
+- [x] Web dashboard (`/dashboard`)
 - [x] Render.com deployment
 
 ✅ **Code Quality**

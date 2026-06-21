@@ -3,7 +3,7 @@ CI/CD Guardian Agent - Main FastAPI Application
 Standalone autonomous agent for CI/CD pipeline monitoring and policy enforcement
 """
 from fastapi import FastAPI, HTTPException, Request, Depends, Header, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from contextlib import asynccontextmanager
 import logging
 import yaml
@@ -22,6 +22,7 @@ from src.policy_enforcer import PolicyEnforcer
 from src.notifier import Notifier
 from src.memory_manager import MemoryManager
 from src.github_client import GitHubClient
+from src.dashboard import DASHBOARD_HTML
 
 # Configure logging
 LOG_DIR = Path("logs")
@@ -322,6 +323,27 @@ async def health_check():
         )
 
 
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard():
+    """Serve the human-facing metrics dashboard (HTML)."""
+    return HTMLResponse(content=DASHBOARD_HTML)
+
+
+@app.get("/dashboard/data", dependencies=[Depends(verify_api_key)])
+async def dashboard_data():
+    """JSON feed for the dashboard: aggregate metrics + recent incidents."""
+    try:
+        metrics = MEMORY.get_metrics()
+        metrics["ltm_backend"] = MEMORY.get_memory_status().get("ltm_backend")
+        return {
+            "metrics": metrics,
+            "recent": MEMORY.get_recent_incidents(limit=20),
+        }
+    except Exception as e:
+        logger.error(f"Error building dashboard data: {e}")
+        raise HTTPException(status_code=500, detail=f"Dashboard data failed: {str(e)}")
+
+
 @app.get("/")
 async def root():
     """Root endpoint with agent information"""
@@ -333,7 +355,8 @@ async def root():
         "endpoints": {
             "analyze": "/analyze",
             "metrics": "/metrics",
-            "health": "/health"
+            "health": "/health",
+            "dashboard": "/dashboard"
         }
     }
 

@@ -322,6 +322,38 @@ class MemoryManager:
                 "top_anomalies": []
             }
 
+    def get_recent_incidents(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Return the most recent incidents (newest first) for the dashboard."""
+        try:
+            conn = self._connect()
+            cursor = conn.cursor()
+            cursor.execute(self._q("""
+                SELECT pipeline_id, timestamp, status, severity, branch,
+                       commit_sha, anomaly_count, blocked
+                FROM incidents
+                ORDER BY id DESC
+                LIMIT ?
+            """), (limit,))
+            rows = cursor.fetchall()
+            conn.close()
+
+            return [
+                {
+                    "pipeline_id": r[0],
+                    "timestamp": r[1],
+                    "status": r[2],
+                    "severity": r[3],
+                    "branch": r[4],
+                    "commit_sha": (r[5] or "")[:8],
+                    "anomaly_count": r[6],
+                    "blocked": bool(r[7]),
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error(f"Error retrieving recent incidents: {e}")
+            return []
+
     def get_memory_status(self) -> Dict[str, str]:
         """Check memory system health."""
         stm_status = "ok" if self.stm_path.exists() else "missing"
