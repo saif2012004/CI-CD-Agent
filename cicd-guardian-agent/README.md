@@ -45,6 +45,7 @@ CI-CD-Agent/                       # Repository root
     │   ├── policy_enforcer.py     # Branch protection + test coverage
     │   ├── notifier.py            # Slack + Email notifications
     │   ├── github_client.py       # Reads PR state, posts Check Runs & PR comments
+    │   ├── ai_analyzer.py         # Optional Claude-powered root-cause analysis
     │   ├── dashboard.py           # Self-contained HTML metrics dashboard
     │   ├── memory_manager.py      # STM/LTM with corruption handling
     │   ├── models.py              # Pydantic request/response models
@@ -133,6 +134,8 @@ All are optional:
 |----------|---------|
 | `PORT` | Port to bind (default `8000`). |
 | `DATABASE_URL` | Postgres connection string for durable long-term memory. Unset = local SQLite file. |
+| `ANTHROPIC_API_KEY` | Enables 🤖 Claude-powered root-cause analysis on `/analyze`. Unset = AI analysis skipped. |
+| `ANTHROPIC_MODEL` | Override the Claude model used for analysis (default `claude-opus-4-8`). |
 | `SLACK_WEBHOOK_URL` | Slack webhook for notifications; overrides `config/rules.yaml`. |
 | `GUARDIAN_API_KEY` | If set, requires an `X-API-Key` header on `/analyze` and `/metrics`. Unset = auth disabled. |
 | `GUARDIAN_AGENT_URL` | *(CI secret)* URL the GitHub Actions workflow posts results to. |
@@ -447,6 +450,22 @@ The page is open; its data feed (`/dashboard/data`) honors the optional API key.
 If `GUARDIAN_API_KEY` is set, open `/dashboard?key=YOUR_API_KEY`.
 
 **Live:** https://ci-cd-agent.onrender.com/dashboard
+
+---
+
+## 🤖 AI-Powered Analysis (optional)
+
+When `ANTHROPIC_API_KEY` is set, the agent uses **Claude (Opus 4.8)** to enrich
+each flagged pipeline with a plain-English **root-cause analysis and concrete
+remediation steps**, derived from the build logs and detected anomalies — going
+beyond the rule-based recommendations.
+
+- The result is returned in the `ai_analysis` field of `/analyze` and included
+  in the PR comment under an "🤖 AI analysis" heading.
+- It is **best-effort**: if the key is unset, the SDK is missing, or the API
+  call fails, analysis is skipped and the agent behaves exactly as before
+  (`ai_analysis` is `null`). Nothing breaks without the key.
+- Set `ANTHROPIC_MODEL` to override the model (default `claude-opus-4-8`).
 
 ---
 

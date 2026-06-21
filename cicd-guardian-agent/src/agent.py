@@ -22,6 +22,7 @@ from src.policy_enforcer import PolicyEnforcer
 from src.notifier import Notifier
 from src.memory_manager import MemoryManager
 from src.github_client import GitHubClient
+from src.ai_analyzer import AIAnalyzer
 from src.dashboard import DASHBOARD_HTML
 
 # Configure logging
@@ -45,6 +46,7 @@ CONFIG: Dict[str, Any] = {}
 POLICY_ENFORCER: PolicyEnforcer = None
 NOTIFIER: Notifier = None
 MEMORY: MemoryManager = None
+AI_ANALYZER: AIAnalyzer = None
 
 
 async def verify_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
@@ -107,7 +109,7 @@ def get_default_config() -> Dict[str, Any]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize agent components on startup."""
-    global CONFIG, POLICY_ENFORCER, NOTIFIER, MEMORY
+    global CONFIG, POLICY_ENFORCER, NOTIFIER, MEMORY, AI_ANALYZER
 
     logger.info("🛡️  CI/CD Guardian Agent starting up...")
 
@@ -118,6 +120,7 @@ async def lifespan(app: FastAPI):
     POLICY_ENFORCER = PolicyEnforcer(CONFIG)
     NOTIFIER = Notifier(CONFIG.get("notifications", {}))
     MEMORY = MemoryManager()
+    AI_ANALYZER = AIAnalyzer()
 
     logger.info("✅ CI/CD Guardian Agent ready")
     yield
@@ -132,7 +135,7 @@ app = FastAPI(
 )
 
 
-def _build_pr_comment(severity, anomalies, recommendation, block_merge) -> str:
+def _build_pr_comment(severity, anomalies, recommendation, block_merge, ai_analysis=None) -> str:
     """Format the agent's findings as a Markdown PR comment."""
     verdict = "🚫 **Merge blocked**" if block_merge else "⚠️ **Issues found (non-blocking)**"
     lines = [
@@ -146,6 +149,8 @@ def _build_pr_comment(severity, anomalies, recommendation, block_merge) -> str:
     for a in anomalies:
         lines.append(f"| {a.severity} | {a.description} |")
     lines += ["", "### Recommendation", "", recommendation]
+    if ai_analysis:
+        lines += ["", "### 🤖 AI analysis", "", ai_analysis]
     return "\n".join(lines)
 
 
@@ -207,6 +212,16 @@ async def analyze_pipeline(request: PipelineAnalysisRequest):
         
         # Determine the agent's own verdict: should this change be blocked?
         block_merge = severity in ["critical", "high"]
+
+        # Optional Claude-powered root-cause analysis (best-effort)
+        ai_analysis = None
+        if anomalies and AI_ANALYZER and AI_ANALYZER.enabled:
+            ai_analysis = AI_ANALYZER.analyze(
+                status=request.status,
+                severity=severity,
+                anomalies=anomalies,
+                logs=request.logs,
+            )
         
         # Update memory
         MEMORY.update_stm(request.pipeline_id, severity)
@@ -241,7 +256,8 @@ async def analyze_pipeline(request: PipelineAnalysisRequest):
             anomalies=anomalies,
             severity=severity,
             recommendation=recommendation,
-            block_merge=block_merge
+            block_merge=block_merge,
+            ai_analysis=ai_analysis
         )
 
         # Act on GitHub: post a Check Run (gates merges) and comment findings.
@@ -259,7 +275,7 @@ async def analyze_pipeline(request: PipelineAnalysisRequest):
             if request.github_pr_number and anomalies:
                 gh_client.post_pr_comment(
                     request.github_pr_number,
-                    _build_pr_comment(severity, anomalies, recommendation, block_merge),
+                    _build_pr_comment(severity, anomalies, recommendation, block_merge, ai_analysis),
                 )
 
         logger.info(f"Analysis complete: {severity} severity, {len(anomalies)} anomalies")

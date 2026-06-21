@@ -66,6 +66,7 @@ class PipelineAnalysisResponse(BaseModel):
     recommendation: str = Field(..., description="Action recommendation")
     timestamp: str = Field(default_factory=_utc_now_iso)
     block_merge: bool = Field(..., description="The agent's verdict: whether this change should be blocked from merging")
+    ai_analysis: Optional[str] = Field(None, description="Optional Claude-generated root-cause analysis and remediation")
 
 
 class MetricsResponse(BaseModel):
