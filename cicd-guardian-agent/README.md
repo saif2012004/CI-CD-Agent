@@ -21,7 +21,7 @@ The CI/CD Guardian Agent is an intelligent, standalone agent that:
 - ✅ **Scans diffs for committed secrets** (in CI, redacted) and **oversized files**
 - ✅ **Tracks build health** (failures, duration, anomalies) + **historical trends**
 - ✅ **Acts on GitHub itself** — posts a merge-gating Check Run and comments on the PR
-- ✅ **Explains failures with Claude** (Opus 4.8) — optional root-cause + remediation
+- ✅ **Explains failures with AI** (Groq / Llama 3.3) — optional root-cause + remediation
 - ✅ **Notifies** via Slack, Discord, Microsoft Teams, Email, and GitHub Issues
 - ✅ **Issues a block/allow verdict** on every run (`block_merge`) + a live dashboard
 - ✅ **Persists metrics** durably (Postgres) with SQLite fallback and corruption recovery
@@ -66,7 +66,7 @@ The CI/CD Guardian Agent is an intelligent, standalone agent that:
 | `agent.py` | FastAPI app, lifespan wiring, `/analyze` orchestration, dashboard routes, optional API-key auth |
 | `policy_enforcer.py` | All policy checks → anomalies, severity, recommendation |
 | `github_client.py` | Read real PR review state; post Check Runs, PR comments, issues |
-| `ai_analyzer.py` | Optional Claude (Opus 4.8) root-cause analysis (graceful fallback) |
+| `ai_analyzer.py` | Optional Groq (Llama 3.3) root-cause analysis (graceful fallback) |
 | `scanners.py` + `scripts/ci_diff_signals.py` | In-CI diff secret scan (redacted) + changed-file sizes |
 | `notifier.py` | Slack / Discord / Teams / Email delivery |
 | `memory_manager.py` | STM (JSON) + LTM (Postgres/SQLite), metrics, trends, corruption recovery |
@@ -177,8 +177,8 @@ All are optional:
 |----------|---------|
 | `PORT` | Port to bind (default `8000`). |
 | `DATABASE_URL` | Postgres connection string for durable long-term memory. Unset = local SQLite file. |
-| `ANTHROPIC_API_KEY` | Enables 🤖 Claude-powered root-cause analysis on `/analyze`. Unset = AI analysis skipped. |
-| `ANTHROPIC_MODEL` | Override the Claude model used for analysis (default `claude-opus-4-8`). |
+| `GROQ_API_KEY` | Enables 🤖 Groq-powered root-cause analysis on `/analyze`. Unset = AI analysis skipped. |
+| `GROQ_MODEL` | Override the Groq model used for analysis (default `llama-3.3-70b-versatile`). |
 | `SLACK_WEBHOOK_URL` | Slack webhook for notifications; overrides `config/rules.yaml`. |
 | `DISCORD_WEBHOOK_URL` | Discord incoming webhook for notifications (optional). |
 | `TEAMS_WEBHOOK_URL` | Microsoft Teams incoming webhook for notifications (optional). |
@@ -309,7 +309,7 @@ curl -X POST https://ci-cd-agent.onrender.com/analyze \
 }
 ```
 
-> `ai_analysis` is `null` unless `ANTHROPIC_API_KEY` is configured on the agent.
+> `ai_analysis` is `null` unless `GROQ_API_KEY` is configured on the agent.
 
 ### GET /metrics
 
@@ -529,17 +529,19 @@ If `GUARDIAN_API_KEY` is set, open `/dashboard?key=YOUR_API_KEY`.
 
 ## 🤖 AI-Powered Analysis (optional)
 
-When `ANTHROPIC_API_KEY` is set, the agent uses **Claude (Opus 4.8)** to enrich
-each flagged pipeline with a plain-English **root-cause analysis and concrete
-remediation steps**, derived from the build logs and detected anomalies — going
-beyond the rule-based recommendations.
+When `GROQ_API_KEY` is set, the agent uses **Groq** (Llama 3.3 70B by default —
+fast, with a generous free tier) to enrich each flagged pipeline with a
+plain-English **root-cause analysis and concrete remediation steps**, derived
+from the build logs and detected anomalies — going beyond the rule-based
+recommendations.
 
 - The result is returned in the `ai_analysis` field of `/analyze` and included
   in the PR comment under an "🤖 AI analysis" heading.
 - It is **best-effort**: if the key is unset, the SDK is missing, or the API
   call fails, analysis is skipped and the agent behaves exactly as before
   (`ai_analysis` is `null`). Nothing breaks without the key.
-- Set `ANTHROPIC_MODEL` to override the model (default `claude-opus-4-8`).
+- Get a free key at [console.groq.com](https://console.groq.com); set
+  `GROQ_MODEL` to override the model (default `llama-3.3-70b-versatile`).
 
 ---
 

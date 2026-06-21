@@ -158,10 +158,10 @@ If you need to add environment variables:
    - `DATABASE_URL`: Postgres connection string (e.g. from a Render Postgres
      instance) for **durable** long-term memory. Without it the agent uses a
      local SQLite file, which is wiped whenever the free-tier service restarts.
-   - `ANTHROPIC_API_KEY`: Enables Claude-powered root-cause analysis on
-     `/analyze`. Without it, AI analysis is skipped (the agent works normally).
-     Optionally set `ANTHROPIC_MODEL` to override the model (default
-     `claude-opus-4-8`).
+   - `GROQ_API_KEY`: Enables Groq-powered root-cause analysis on `/analyze`
+     (free key at console.groq.com). Without it, AI analysis is skipped (the
+     agent works normally). Optionally set `GROQ_MODEL` to override the model
+     (default `llama-3.3-70b-versatile`).
 
 ### Making metrics durable (recommended)
 

@@ -1,7 +1,7 @@
 """
-Tests for the optional Claude-powered AI analyzer.
+Tests for the optional Groq-powered AI analyzer.
 
-The anthropic client is mocked, so these run with no API key and no network.
+The Groq client is mocked, so these run with no API key and no network.
 """
 from unittest.mock import MagicMock
 
@@ -18,27 +18,29 @@ class _Anomaly:
         self.severity = severity
 
 
-def _text_block(text):
-    b = MagicMock()
-    b.type = "text"
-    b.text = text
-    return b
+def _completion(text):
+    """Build a mock Groq chat-completion response."""
+    msg = MagicMock()
+    msg.content = text
+    choice = MagicMock()
+    choice.message = msg
+    return MagicMock(choices=[choice])
 
 
 def test_disabled_without_key(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     analyzer = AIAnalyzer()
     assert analyzer.enabled is False
     assert analyzer.analyze("failed", "critical", [], "logs") is None
 
 
 def test_enabled_returns_text(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
     analyzer = AIAnalyzer()
     # Replace the real client with a mock regardless of SDK availability.
     analyzer.client = MagicMock()
-    analyzer.client.messages.create.return_value = MagicMock(
-        content=[_text_block("Root cause: tests failed.\nFix:\n- fix the test")]
+    analyzer.client.chat.completions.create.return_value = _completion(
+        "Root cause: tests failed.\nFix:\n- fix the test"
     )
 
     out = analyzer.analyze(
@@ -48,28 +50,27 @@ def test_enabled_returns_text(monkeypatch):
     )
     assert "Root cause" in out
     assert "Fix:" in out
-    # Verify it called the model with adaptive thinking
-    _, kwargs = analyzer.client.messages.create.call_args
-    assert kwargs["thinking"] == {"type": "adaptive"}
+    _, kwargs = analyzer.client.chat.completions.create.call_args
     assert kwargs["model"]
+    assert kwargs["messages"][0]["role"] == "user"
 
 
 def test_api_error_degrades_to_none(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
     analyzer = AIAnalyzer()
     analyzer.client = MagicMock()
-    analyzer.client.messages.create.side_effect = RuntimeError("boom")
+    analyzer.client.chat.completions.create.side_effect = RuntimeError("boom")
     assert analyzer.analyze("failed", "high", [], "logs") is None
 
 
 def test_logs_are_truncated(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
     analyzer = AIAnalyzer()
     analyzer.client = MagicMock()
-    analyzer.client.messages.create.return_value = MagicMock(content=[_text_block("ok")])
+    analyzer.client.chat.completions.create.return_value = _completion("ok")
     huge = "x" * 50000
     analyzer.analyze("failed", "high", [], huge)
-    _, kwargs = analyzer.client.messages.create.call_args
+    _, kwargs = analyzer.client.chat.completions.create.call_args
     prompt = kwargs["messages"][0]["content"]
     # The full 50k log must not be passed verbatim
     assert len(prompt) < 20000
@@ -95,7 +96,7 @@ def test_analyze_endpoint_includes_ai_analysis(monkeypatch):
 
 def test_analyze_endpoint_ai_analysis_null_when_disabled(monkeypatch):
     monkeypatch.delenv("GUARDIAN_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     payload = {
         "pipeline_id": "p2", "status": "success", "duration_seconds": 100,
         "logs": "ok", "vulnerabilities": [], "branch": "feature/x",

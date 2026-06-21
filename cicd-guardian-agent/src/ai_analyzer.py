@@ -1,12 +1,14 @@
 """
-AI Analyzer — optional Claude-powered enrichment.
+AI Analyzer — optional Groq-powered enrichment.
 
-Uses Claude (Opus 4.8 by default) to explain a pipeline's failure in plain
+Uses Groq (Llama 3.3 70B by default) to explain a pipeline's failure in plain
 English and suggest concrete remediation, going beyond the rule-based
-recommendations. It is strictly best-effort and degrades gracefully:
+recommendations. Groq is fast and has a generous free tier, which suits this
+synchronous, best-effort enrichment.
 
-- If ANTHROPIC_API_KEY is not set, or the `anthropic` SDK is not installed,
-  AI analysis is disabled and the agent behaves exactly as before.
+It degrades gracefully:
+- If GROQ_API_KEY is not set, or the `groq` SDK is not installed, AI analysis
+  is disabled and the agent behaves exactly as before.
 - Any API error is caught and logged; it never breaks pipeline analysis.
 """
 import logging
@@ -15,12 +17,12 @@ from typing import Optional, List, Any
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "claude-opus-4-8"
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
 MAX_LOG_CHARS = 6000
 
 
 class AIAnalyzer:
-    """Optional Claude-backed root-cause + remediation generator."""
+    """Optional Groq-backed root-cause + remediation generator."""
 
     def __init__(
         self,
@@ -28,22 +30,22 @@ class AIAnalyzer:
         model: Optional[str] = None,
         timeout: float = 30.0,
     ):
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        self.model = model or os.getenv("ANTHROPIC_MODEL", DEFAULT_MODEL)
+        self.api_key = api_key or os.getenv("GROQ_API_KEY")
+        self.model = model or os.getenv("GROQ_MODEL", DEFAULT_MODEL)
         self.timeout = timeout
         self.client = None
 
         if self.api_key:
             try:
-                import anthropic
-                self.client = anthropic.Anthropic(api_key=self.api_key, timeout=timeout)
-                logger.info(f"AIAnalyzer enabled (model: {self.model})")
+                from groq import Groq
+                self.client = Groq(api_key=self.api_key, timeout=timeout)
+                logger.info(f"AIAnalyzer enabled (Groq model: {self.model})")
             except ImportError:
-                logger.warning("anthropic SDK not installed; AI analysis disabled")
+                logger.warning("groq SDK not installed; AI analysis disabled")
             except Exception as e:
                 logger.warning(f"Failed to init AIAnalyzer (disabled): {e}")
         else:
-            logger.info("ANTHROPIC_API_KEY not set; AI analysis disabled")
+            logger.info("GROQ_API_KEY not set; AI analysis disabled")
 
     @property
     def enabled(self) -> bool:
@@ -82,18 +84,14 @@ class AIAnalyzer:
                 "Be specific and concise."
             )
 
-            message = self.client.messages.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 max_tokens=1024,
-                thinking={"type": "adaptive"},
+                temperature=0.2,
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            parts = [
-                b.text for b in message.content
-                if getattr(b, "type", None) == "text"
-            ]
-            text = "\n".join(parts).strip()
+            text = (response.choices[0].message.content or "").strip()
             return text or None
 
         except Exception as e:
