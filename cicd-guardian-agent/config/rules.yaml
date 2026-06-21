@@ -47,6 +47,6 @@ build_monitoring:
   # Maximum build duration in seconds (10 minutes)
   max_duration_seconds: 600
   
-  # Enable automatic escalation for critical issues
-  auto_escalate: true
+  # Automatically block merges (fail the CI check) for critical issues
+  auto_block: true
 

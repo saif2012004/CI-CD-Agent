@@ -60,7 +60,7 @@ class PipelineAnalysisResponse(BaseModel):
     severity: str = Field(..., description="Overall severity: critical, high, medium, low, none")
     recommendation: str = Field(..., description="Action recommendation")
     timestamp: str = Field(default_factory=_utc_now_iso)
-    escalate_to_supervisor: bool = Field(..., description="Whether to escalate to supervisor")
+    block_merge: bool = Field(..., description="The agent's verdict: whether this change should be blocked from merging")
 
 
 class MetricsResponse(BaseModel):
@@ -83,14 +83,4 @@ class HealthResponse(BaseModel):
     memory_status: Dict[str, str]
     config_loaded: bool
     uptime_seconds: float
-
-
-class AgentRegistrationResponse(BaseModel):
-    """Response model for supervisor registration"""
-    agent_id: str
-    agent_type: str
-    capabilities: List[str]
-    endpoints: Dict[str, str]
-    status: str
-    metadata: Dict[str, Any]
 

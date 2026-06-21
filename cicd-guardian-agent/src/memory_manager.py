@@ -94,7 +94,7 @@ class MemoryManager:
                     anomaly_count INTEGER,
                     anomalies TEXT,
                     recommendation TEXT,
-                    escalated BOOLEAN DEFAULT 0
+                    blocked BOOLEAN DEFAULT 0
                 )
             """)
             
@@ -172,7 +172,7 @@ class MemoryManager:
         commit_sha: str,
         anomalies: List[Any],
         recommendation: str,
-        escalated: bool
+        blocked: bool
     ) -> bool:
         """Save incident to long-term memory"""
         try:
@@ -189,7 +189,7 @@ class MemoryManager:
             cursor.execute("""
                 INSERT INTO incidents 
                 (pipeline_id, timestamp, status, severity, duration_seconds, 
-                 branch, commit_sha, anomaly_count, anomalies, recommendation, escalated)
+                 branch, commit_sha, anomaly_count, anomalies, recommendation, blocked)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 pipeline_id,
@@ -202,7 +202,7 @@ class MemoryManager:
                 len(anomalies),
                 anomalies_json,
                 recommendation,
-                escalated
+                blocked
             ))
             
             conn.commit()

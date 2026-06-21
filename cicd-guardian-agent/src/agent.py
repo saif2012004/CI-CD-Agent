@@ -1,6 +1,6 @@
 """
 CI/CD Guardian Agent - Main FastAPI Application
-Supervisor-Worker Architecture: Worker Agent for CI/CD Pipeline Monitoring
+Standalone autonomous agent for CI/CD pipeline monitoring and policy enforcement
 """
 from fastapi import FastAPI, HTTPException, Request, Depends, Header, status
 from fastapi.responses import JSONResponse
@@ -16,8 +16,7 @@ from src.models import (
     PipelineAnalysisRequest,
     PipelineAnalysisResponse,
     MetricsResponse,
-    HealthResponse,
-    AgentRegistrationResponse
+    HealthResponse
 )
 from src.policy_enforcer import PolicyEnforcer
 from src.notifier import Notifier
@@ -169,8 +168,8 @@ async def analyze_pipeline(request: PipelineAnalysisRequest):
         # Generate recommendation
         recommendation = POLICY_ENFORCER.generate_recommendation(anomalies, severity)
         
-        # Determine if escalation needed
-        escalate = severity in ["critical", "high"]
+        # Determine the agent's own verdict: should this change be blocked?
+        block_merge = severity in ["critical", "high"]
         
         # Update memory
         MEMORY.update_stm(request.pipeline_id, severity)
@@ -183,7 +182,7 @@ async def analyze_pipeline(request: PipelineAnalysisRequest):
             commit_sha=request.commit_sha,
             anomalies=anomalies,
             recommendation=recommendation,
-            escalated=escalate
+            blocked=block_merge
         )
         
         # Send notifications if needed
@@ -205,7 +204,7 @@ async def analyze_pipeline(request: PipelineAnalysisRequest):
             anomalies=anomalies,
             severity=severity,
             recommendation=recommendation,
-            escalate_to_supervisor=escalate
+            block_merge=block_merge
         )
         
         logger.info(f"Analysis complete: {severity} severity, {len(anomalies)} anomalies")
@@ -219,8 +218,8 @@ async def analyze_pipeline(request: PipelineAnalysisRequest):
 @app.get("/metrics", response_model=MetricsResponse, dependencies=[Depends(verify_api_key)])
 async def get_metrics():
     """
-    Get comprehensive metrics for supervisor
-    
+    Get comprehensive metrics
+
     Returns:
     - Total pipelines analyzed
     - Incident counts by severity
@@ -269,61 +268,6 @@ async def health_check():
         )
 
 
-@app.post("/register", response_model=AgentRegistrationResponse)
-async def register_with_supervisor(request: Request):
-    """
-    Registration endpoint for supervisor integration
-    
-    Returns complete agent metadata and capabilities
-    """
-    try:
-        # Get base URL from request
-        base_url = str(request.base_url).rstrip('/')
-        
-        response = AgentRegistrationResponse(
-            agent_id="cicd-guardian-001",
-            agent_type="CI/CD Monitoring & Policy Enforcement",
-            capabilities=[
-                "Branch protection enforcement",
-                "Pull request validation",
-                "Test coverage monitoring (≥80%)",
-                "Security vulnerability detection",
-                "Build health monitoring",
-                "Slack/Email notifications",
-                "Real-time anomaly detection",
-                "Metrics and reporting"
-            ],
-            endpoints={
-                "analyze": f"{base_url}/analyze",
-                "metrics": f"{base_url}/metrics",
-                "health": f"{base_url}/health",
-                "docs": f"{base_url}/docs"
-            },
-            status="active",
-            metadata={
-                "version": "1.0.0",
-                "architecture": "Supervisor-Worker",
-                "policies_enforced": [
-                    "No direct push to main/master/develop",
-                    "Minimum 1 PR approval required",
-                    "Test coverage ≥80%",
-                    "Build duration threshold: 600s",
-                    "Zero vulnerabilities (CVEs)"
-                ],
-                "notification_channels": ["slack", "email"],
-                "memory_system": ["STM (JSON)", "LTM (SQLite)"],
-                "escalation_severity": ["critical", "high"]
-            }
-        )
-        
-        logger.info("Agent registered with supervisor")
-        return response
-    
-    except Exception as e:
-        logger.error(f"Registration failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
-
-
 @app.get("/")
 async def root():
     """Root endpoint with agent information"""
@@ -335,8 +279,7 @@ async def root():
         "endpoints": {
             "analyze": "/analyze",
             "metrics": "/metrics",
-            "health": "/health",
-            "register": "/register"
+            "health": "/health"
         }
     }
 

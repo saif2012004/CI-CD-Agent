@@ -173,15 +173,15 @@ jobs:
             # Extract key information
             SEVERITY=$(echo "$BODY" | python -c "import sys, json; data=json.load(sys.stdin); print(data.get('severity', 'unknown'))" 2>/dev/null || echo "unknown")
             ANOMALY_COUNT=$(echo "$BODY" | python -c "import sys, json; data=json.load(sys.stdin); print(len(data.get('anomalies', [])))" 2>/dev/null || echo "0")
-            ESCALATE=$(echo "$BODY" | python -c "import sys, json; data=json.load(sys.stdin); print(data.get('escalate_to_supervisor', False))" 2>/dev/null || echo "false")
-            
+            BLOCK_MERGE=$(echo "$BODY" | python -c "import sys, json; data=json.load(sys.stdin); print(data.get('block_merge', False))" 2>/dev/null || echo "false")
+
             echo "📊 Analysis Results:"
             echo "  - Severity: $SEVERITY"
             echo "  - Anomalies detected: $ANOMALY_COUNT"
-            echo "  - Escalate to supervisor: $ESCALATE"
-            
+            echo "  - Block merge: $BLOCK_MERGE"
+
             # Fail the job if critical issues found
-            if [ "$SEVERITY" = "critical" ] && [ "$ESCALATE" = "True" ]; then
+            if [ "$SEVERITY" = "critical" ] && [ "$BLOCK_MERGE" = "True" ]; then
               echo "🚨 CRITICAL ISSUES DETECTED - Blocking merge!"
               echo "$BODY" | python -c "
           import sys, json

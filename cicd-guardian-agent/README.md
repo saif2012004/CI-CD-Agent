@@ -2,7 +2,7 @@
 
 **Intelligent CI/CD Pipeline Monitoring & Policy Enforcement**
 
-A modular, production-ready automation tool that safeguards CI/CD pipelines using Supervisor-Worker architecture. Built for the "Fundamentals of Software Project Management" course.
+A modular, production-ready, **standalone** automation tool that safeguards CI/CD pipelines. It makes its own block/allow decision on every pipeline run — no external orchestrator required. Built for the "Fundamentals of Software Project Management" course.
 
 **🌐 Live Deployment:** https://ci-cd-agent.onrender.com  
 **📊 API Docs:** https://ci-cd-agent.onrender.com/docs  
@@ -12,7 +12,7 @@ A modular, production-ready automation tool that safeguards CI/CD pipelines usin
 
 ## 📋 Overview
 
-The CI/CD Guardian Agent is an intelligent worker agent that:
+The CI/CD Guardian Agent is an intelligent, standalone agent that:
 
 - ✅ **Enforces branch protection** (no direct push to main/master/develop)
 - ✅ **Validates pull requests** (minimum approvals required)
@@ -20,15 +20,15 @@ The CI/CD Guardian Agent is an intelligent worker agent that:
 - ✅ **Detects security vulnerabilities** (CVE scanning)
 - ✅ **Tracks build health** (failures, duration, anomalies)
 - ✅ **Sends real-time notifications** (Slack/Email)
-- ✅ **Provides metrics & logs** for Supervisor escalation
+- ✅ **Issues a block/allow verdict** on every run (`block_merge`) plus metrics & logs
 - ✅ **Auto-recovers from corruption** (STM + LTM memory system)
 
 ---
 
 ## 🏗️ Architecture
 
-**Pattern:** Supervisor-Worker  
-**Role:** Worker Agent  
+**Pattern:** Standalone autonomous service  
+**Role:** Self-contained policy decision engine  
 **Integration:** GitHub Actions / Jenkins  
 **Configuration:** YAML-based  
 **Memory:** Short-term (JSON) + Long-term (SQLite)
@@ -58,8 +58,7 @@ CI-CD-Agent/                       # Repository root
     ├── requirements.txt           # Python dependencies
     ├── render.yaml                # Render.com deployment config
     ├── README.md                  # This file
-    ├── DEPLOYMENT.md              # Deployment guide
-    └── SUPERVISOR_INTEGRATION_INFO.md  # Supervisor integration guide
+    └── DEPLOYMENT.md              # Deployment guide
 ```
 
 > **Note:** The GitHub Actions workflow lives at the **repository root**
@@ -165,8 +164,7 @@ To use this agent in your projects:
 
 3. **Push code and watch the magic!** 🎉
 
-**Detailed deployment guide:** See [DEPLOYMENT.md](DEPLOYMENT.md)  
-**Supervisor integration:** See [SUPERVISOR_INTEGRATION_INFO.md](SUPERVISOR_INTEGRATION_INFO.md)
+**Detailed deployment guide:** See [DEPLOYMENT.md](DEPLOYMENT.md)
 
 ---
 
@@ -179,7 +177,6 @@ To use this agent in your projects:
 | `/analyze` | POST | Analyze pipeline and detect anomalies |
 | `/metrics` | GET | Get comprehensive metrics |
 | `/health` | GET | Health check with memory status |
-| `/register` | POST | Register with Supervisor |
 | `/docs` | GET | Interactive API documentation |
 
 ### 🔐 Authentication
@@ -191,7 +188,7 @@ To use this agent in your projects:
   they return `401 Unauthorized`).
 - If `GUARDIAN_API_KEY` is **not** set, authentication is disabled — convenient
   for local/demo use.
-- `/health`, `/`, and `/register` are always open.
+- `/health` and `/` are always open.
 
 ```bash
 curl -X POST https://ci-cd-agent.onrender.com/analyze \
@@ -243,7 +240,7 @@ curl -X POST https://ci-cd-agent.onrender.com/analyze \
   ],
   "severity": "critical",
   "recommendation": "🚨 URGENT: Block merge until issues resolved.\n- Security vulnerability detected: CVE-2023-12345\n- Direct push to protected branch 'main' is not allowed\n- Test coverage (65%) is below minimum (80%)\n\nRecommended Actions:\n• Update dependencies to patch security vulnerabilities\n• Revert direct push and create a pull request instead\n• Add more unit tests to meet coverage requirements",
-  "escalate_to_supervisor": true,
+  "block_merge": true,
   "timestamp": "2025-11-29T10:30:00Z"
 }
 ```
@@ -569,7 +566,7 @@ The agent auto-recovers! If you see corruption warnings:
 ✅ **Integration**
 - [x] GitHub Actions workflow
 - [x] FastAPI REST API
-- [x] Supervisor registration
+- [x] Self-contained block/allow verdict
 - [x] Render.com deployment
 
 ✅ **Code Quality**
@@ -595,23 +592,19 @@ For local development:
 
 ---
 
-## 🔗 Supervisor Integration
+## 🔗 Standalone Operation
 
-This agent is designed to work with a Supervisor Agent in a Supervisor-Worker architecture.
+This agent runs **independently** — it makes its own decision on every pipeline
+run and does not require any external orchestrator.
 
-**For Supervisor Developers:**
-- See [SUPERVISOR_INTEGRATION_INFO.md](SUPERVISOR_INTEGRATION_INFO.md) for complete integration guide
-- **Registration Endpoint:** `POST https://ci-cd-agent.onrender.com/register`
-- **Health Monitoring:** `GET https://ci-cd-agent.onrender.com/health`
-- **Metrics Collection:** `GET https://ci-cd-agent.onrender.com/metrics`
-- **Task Delegation:** `POST https://ci-cd-agent.onrender.com/analyze`
+- **Analyze a pipeline:** `POST https://ci-cd-agent.onrender.com/analyze`
+- **Health monitoring:** `GET https://ci-cd-agent.onrender.com/health`
+- **Metrics collection:** `GET https://ci-cd-agent.onrender.com/metrics`
 
-**Quick Test:**
-```bash
-curl -X POST https://ci-cd-agent.onrender.com/register
-```
-
-The agent automatically escalates critical and high-severity incidents to the supervisor via the `escalate_to_supervisor` flag in responses.
+Each `/analyze` response includes a **`block_merge`** flag — the agent's own
+verdict on whether the change should be blocked (set for `critical`/`high`
+severity). The GitHub Actions workflow reads this flag and fails the build
+accordingly.
 
 ---
 
@@ -620,13 +613,13 @@ The agent automatically escalates critical and high-severity incidents to the su
 This project fulfills the "Code & Working Prototype" deliverable for the Fundamentals of Software Project Management course.
 
 **Key Requirements Met:**
-- ✅ Supervisor-Worker architecture
+- ✅ Standalone autonomous agent
 - ✅ Modular, intelligent automation
 - ✅ CI/CD pipeline integration
 - ✅ Compliance enforcement
 - ✅ Performance monitoring
 - ✅ Configurable notifications
-- ✅ Metrics for escalation
+- ✅ Metrics & block/allow verdict
 - ✅ Python + FastAPI implementation
 - ✅ YAML configuration
 - ✅ Lightweight & scalable
